@@ -1,31 +1,68 @@
-# ClaimIT 
+# ClaimIT
 
-**ClaimIT** is a native Android campus Lost & Found application written 100% in Kotlin with Jetpack Compose.
+## Copyright
 
-## Description
-ClaimIT is a native Android campus Lost & Found app built with Kotlin and Jetpack Compose. Features AI item recognition, vector proximity duplicate matching, LPU campus geospatial location indexing, multi-step report creation, and a clean editorial fintech interface.
+**Copyright © 2026 AKHIL R/Sachin Sahani All Rights Reserved.**
+
+*ClaimIT and its source code are proprietary and protected by applicable copyright laws.*
+
+**Copying, modifying, distributing, publishing, or reusing any part of this project without prior written permission is strictly prohibited.**
+
+## Overview
+
+**ClaimIT** is a native Android **Campus Lost & Found application** built with **Kotlin** and **Jetpack Compose**. It provides a centralized platform for reporting, discovering, and managing lost and found items within a university campus.
+
+The application combines **AI-assisted item recognition**, **vector proximity-based duplicate matching**, **campus geospatial location indexing**, and a **structured multi-step reporting workflow** to simplify the process of finding and reclaiming lost belongings.
+
+## Features
+
+- **AI-Assisted Item Recognition**
+- **Vector Proximity-Based Duplicate Matching**
+- **Campus Geospatial Location Indexing**
+- **Multi-Step Lost & Found Report Creation**
+- **Lost & Found Item Discovery**
+- **Location-Based Item Information**
+- **Native Android Interface**
+- **Modern Editorial-Style User Interface**
+
+## Technology
+
+- **Kotlin**
+- **Jetpack Compose**
+- **Android**
+- **AI-Based Image Recognition**
+- **Vector Similarity Matching**
+- **Geospatial Indexing**
+
+## Purpose
+
+ClaimIT is designed to provide a **dedicated digital platform for campus Lost & Found management**.
+
+The application brings **lost and found reporting, item discovery, location information, and potential matching** into a centralized platform, reducing reliance on fragmented communication channels and manual reporting.
+
+## Development Status
+
+**ClaimIT is currently under development.**
+
+*Features, functionality, and implementation may continue to evolve throughout the development process.*
+
+## Future Development
+
+- Improved **item matching**
+- Enhanced **location-based discovery**
+- **Match notifications**
+- **User verification**
+- **Administrative features**
+- Additional **privacy and security controls**
+- **Performance improvements**
+
+## Developer
+
+**AKHIL R/Sachin Sahani**
+
+*Computer Science & Engineering*  
+*Cybersecurity*
 
 ---
 
-## Key Features
-
-- **Native Multimodal AI Pipeline**: On-device/hybrid item classification, structural tag generation, and confidence score extraction.
-- **Vector Proximity & Duplicate Cluster Engine**: Anti-spam compound scoring heuristic ($Score = W_v \cdot Sim_v + W_l \cdot Score_l + W_t \cdot Score_t$) with embedded inline match banners and side-by-side verification.
-- **LPU Geospatial Campus Indexing**: Multi-tier indexing across all 50+ Lovely Professional University (LPU) campus blocks and facilities with fast offline fuzzy search.
-- **Multi-Step Report Creation**: Structured 3-step wizard (`Overview` $\rightarrow$ `Tags` $\rightarrow$ `Location`) with custom floor inputs and action taken remarks.
-- **Multi-Page Navigation Menu**: Bottom navigation menu system (`Report`, `Campus Feed`, `AI Matches`, `Campus Zones`).
-
----
-
-## Tech Stack
-
-- **Language**: 100% Modern Kotlin
-- **UI Framework**: Jetpack Compose & Material 3
-- **Architecture**: Clean Architecture + MVI / UDF (`ViewModel`, `StateFlow`, `SharedFlow`, `Channel`)
-- **Concurrency**: Kotlin Coroutines & Injected Dispatchers (`CoroutineDispatchers`)
-- **Design Tokens**: Editorial Industrial Fintech Slate Palette
-
----
-
-## Authors & Maintainers
-- **Akhil / Sachin**
+**ClaimIT — Campus Lost & Found**
