@@ -1,4 +1,4 @@
-# ClaimIT 🔍📱
+# ClaimIT 
 
 **ClaimIT** is a native Android campus Lost & Found application written 100% in Kotlin with Jetpack Compose.
 
