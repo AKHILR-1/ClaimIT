@@ -1,5 +1,7 @@
 package com.example.claimit.data.repository
 
+import android.graphics.Bitmap
+import android.util.Log
 import com.example.claimit.core.dispatchers.CoroutineDispatchers
 import com.example.claimit.domain.model.AIVectorMetadata
 import com.example.claimit.domain.model.AttributeType
@@ -12,146 +14,183 @@ import com.example.claimit.domain.model.ItemType
 import com.example.claimit.domain.model.PhysicalAttributes
 import com.example.claimit.domain.model.PostStatus
 import com.example.claimit.domain.repository.ItemRepository
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 
 class ItemRepositoryImpl(
-    private val dispatchers: CoroutineDispatchers
+    private val dispatchers: CoroutineDispatchers,
+    private val firestore: FirebaseFirestore? = try { FirebaseFirestore.getInstance() } catch (_: Exception) { null },
+    private val storage: FirebaseStorage? = try { FirebaseStorage.getInstance() } catch (_: Exception) { null }
 ) : ItemRepository {
 
-    private val mallBuilding = Building("bld_15", "15", "Uni Mall", "Commercial Hub", "LPU UniMall Shopping & Food Court")
-    private val aiBuilding = Building("bld_25", "25", "School of AI and Emerging Technology", "Engineering & Tech", "AI & Emerging Tech Labs")
-    private val healthBuilding = Building("bld_03", "03", "Uni Health Center", "Medical & Health", "University Health Center & Medical Clinic")
-    private val libraryBuilding = Building("bld_37", "37", "Centre Library", "Central Academic", "Central University Library")
+    private val TAG = "ItemRepository"
 
-    // Pre-populated realistic campus listings referencing the exact LPU building index
-    private val initialPosts = listOf(
-        ItemPost(
-            id = "post_001",
-            trackingCode = "CLM-8F32A1",
-            title = "AirPods Pro 2 in White Case",
-            description = "Left AirPods Pro 2 generation case in white with a small scratch on the rear hinge. Found near Food Court area at Uni Mall.",
-            type = ItemType.LOST,
-            category = ItemCategory.ELECTRONICS,
-            location = CampusLocation(
-                building = mallBuilding,
-                floorWing = "Level 2 Food Plaza",
-                microLocationDetails = "Near Central Table #12"
-            ),
-            physicalAttributes = PhysicalAttributes(
-                dominantColor = "White",
-                material = "Glossy Plastic",
-                condition = "Used - Minor scratch",
-                distinguishingFeatures = "Hinge mark"
-            ),
-            aiMetadata = AIVectorMetadata(
-                vectorEmbedding = List(128) { 0.8f },
-                structuralTags = listOf("AirPods Pro 2", "White Case", "Scratch on Hinge"),
-                detectedAttributes = listOf(
-                    DetectedAttribute("1", "AirPods Pro 2", AttributeType.BRAND_MODEL, 0.95f),
-                    DetectedAttribute("2", "White Case", AttributeType.COLOR, 0.92f)
-                ),
-                overallConfidence = 0.94f,
-                analyzedAtTimestamp = System.currentTimeMillis() - 3600000
-            ),
-            acceptedTags = listOf("AirPods Pro 2", "White Case"),
-            imageUrls = emptyList(),
-            createdAtTimestamp = System.currentTimeMillis() - (2 * 3600000), // 2h ago
-            status = PostStatus.ACTIVE,
-            finderOrOwnerContact = "alex.student@campus.edu",
-            actionTakenRemarks = "Submitted at Block 15 Security Desk"
-        ),
-        ItemPost(
-            id = "post_002",
-            trackingCode = "CLM-12B9C8",
-            title = "Black Hydro Flask Water Bottle 32oz",
-            description = "Matte black Hydro Flask with NASA & AI Society stickers. Left on bench outside Block 25.",
-            type = ItemType.LOST,
-            category = ItemCategory.OTHER,
-            location = CampusLocation(
-                building = aiBuilding,
-                floorWing = "Floor 2",
-                microLocationDetails = "AI Robotics Lab Bench"
-            ),
-            physicalAttributes = PhysicalAttributes(
-                dominantColor = "Matte Black",
-                material = "Stainless Steel",
-                condition = "Good",
-                distinguishingFeatures = "NASA & AI stickers"
-            ),
-            aiMetadata = null,
-            acceptedTags = listOf("Hydro Flask", "Matte Black", "Stickers"),
-            imageUrls = emptyList(),
-            createdAtTimestamp = System.currentTimeMillis() - (5 * 3600000), // 5h ago
-            status = PostStatus.ACTIVE,
-            finderOrOwnerContact = "jordan.eng@campus.edu",
-            actionTakenRemarks = "Left at Block 25 Security Counter"
-        ),
-        ItemPost(
-            id = "post_003",
-            trackingCode = "CLM-99D0F1",
-            title = "Student ID Card - Marcus Vance",
-            description = "Campus Student Access Card found on the reading table at Centre Library Block 37.",
-            type = ItemType.FOUND,
-            category = ItemCategory.WALLETS_CARDS,
-            location = CampusLocation(
-                building = libraryBuilding,
-                floorWing = "1st Floor Quiet Reading Zone",
-                microLocationDetails = "Table #4"
-            ),
-            physicalAttributes = PhysicalAttributes(
-                dominantColor = "Blue/White",
-                material = "PVC Card",
-                condition = "Clean",
-                distinguishingFeatures = "ID #8820319"
-            ),
-            aiMetadata = null,
-            acceptedTags = listOf("Student ID", "Marcus Vance"),
-            imageUrls = emptyList(),
-            createdAtTimestamp = System.currentTimeMillis() - (12 * 3600000),
-            status = PostStatus.ACTIVE,
-            finderOrOwnerContact = "lib.desk@campus.edu",
-            actionTakenRemarks = "Submitted at Central Library Circulation Desk"
-        ),
-        ItemPost(
-            id = "post_004",
-            trackingCode = "CLM-44A7E2",
-            title = "Prescription Eyeglasses - Black Frame",
-            description = "Ray-Ban prescription glasses in brown leather case. Found in OPD waiting room at Uni Health Center Block 03.",
-            type = ItemType.FOUND,
-            category = ItemCategory.ACCESSORIES,
-            location = CampusLocation(
-                building = healthBuilding,
-                floorWing = "Ground Floor OPD",
-                microLocationDetails = "OPD Reception Waiting Bench"
-            ),
-            physicalAttributes = PhysicalAttributes(
-                dominantColor = "Black",
-                material = "Acetate",
-                condition = "Excellent",
-                distinguishingFeatures = "Ray-Ban logo"
-            ),
-            aiMetadata = null,
-            acceptedTags = listOf("Prescription Glasses", "Ray-Ban"),
-            imageUrls = emptyList(),
-            createdAtTimestamp = System.currentTimeMillis() - (18 * 3600000),
-            status = PostStatus.ACTIVE,
-            finderOrOwnerContact = "health.clinic@campus.edu",
-            actionTakenRemarks = "Submitted at Uni Health Center Reception"
-        )
-    )
+    private val initialPosts = emptyList<ItemPost>()
 
     private val postsStateFlow = MutableStateFlow(initialPosts)
+    private val savedPostsUserMap = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+
+    init {
+        listenToFirestoreItems()
+    }
+
+    private fun listenToFirestoreItems() {
+        val db = firestore ?: return
+        try {
+            db.collection("organizations")
+                .document("lpu_main_campus")
+                .collection("items")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.w(TAG, "Firestore item snapshot listener error: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null && !snapshot.isEmpty) {
+                        val remotePosts = mutableListOf<ItemPost>()
+                        for (doc in snapshot.documents) {
+                            try {
+                                val title = doc.getString("title") ?: continue
+                                val typeStr = doc.getString("type") ?: ItemType.LOST.name
+                                val categoryStr = doc.getString("category") ?: ItemCategory.OTHER.name
+                                val statusStr = doc.getString("status") ?: PostStatus.ACTIVE.name
+
+                                val type = try { ItemType.valueOf(typeStr) } catch (_: Exception) { ItemType.LOST }
+                                val category = try { ItemCategory.valueOf(categoryStr) } catch (_: Exception) { ItemCategory.OTHER }
+                                val status = try { PostStatus.valueOf(statusStr) } catch (_: Exception) { PostStatus.ACTIVE }
+
+                                @Suppress("UNCHECKED_CAST")
+                                val imageUrlsList = (doc.get("imageUrls") as? List<String>) ?: emptyList()
+
+                                val post = ItemPost(
+                                    id = doc.id,
+                                    trackingCode = doc.getString("trackingCode") ?: "CLM-${doc.id.take(6).uppercase()}",
+                                    organizationId = doc.getString("organizationId") ?: "lpu_main_campus",
+                                    userId = doc.getString("userId") ?: "user_student_1",
+                                    userDisplayName = doc.getString("userDisplayName") ?: "Campus Member",
+                                    title = title,
+                                    description = doc.getString("description") ?: "",
+                                    type = type,
+                                    category = category,
+                                    location = CampusLocation(
+                                        building = Building(
+                                            id = doc.getString("buildingId") ?: "bld_15",
+                                            code = doc.getString("buildingCode") ?: "15",
+                                            name = doc.getString("buildingName") ?: "Campus Center",
+                                            zoneName = doc.getString("zoneName") ?: "Central",
+                                            landmarkName = doc.getString("buildingDesc") ?: ""
+                                        ),
+                                        floorWing = doc.getString("floorWing") ?: "",
+                                        microLocationDetails = doc.getString("microLocation") ?: ""
+                                    ),
+                                    physicalAttributes = PhysicalAttributes(
+                                        dominantColor = doc.getString("dominantColor") ?: "",
+                                        material = doc.getString("material") ?: "",
+                                        condition = doc.getString("condition") ?: "",
+                                        distinguishingFeatures = doc.getString("distinguishingFeatures") ?: ""
+                                    ),
+                                    aiMetadata = null,
+                                    acceptedTags = emptyList(),
+                                    imageUrls = imageUrlsList,
+                                    createdAtTimestamp = doc.getLong("createdAtTimestamp") ?: System.currentTimeMillis(),
+                                    status = status,
+                                    finderOrOwnerContact = doc.getString("contact") ?: "contact@campus.edu",
+                                    actionTakenRemarks = doc.getString("remarks") ?: ""
+                                )
+                                remotePosts.add(post)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error parsing Firestore item document: ${e.message}")
+                            }
+                        }
+                        if (remotePosts.isNotEmpty()) {
+                            val combined = (remotePosts + postsStateFlow.value).distinctBy { it.id }
+                            postsStateFlow.value = combined
+                        }
+                    }
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "Exception initializing Firestore item snapshot listener: ${e.message}")
+        }
+    }
+
+    suspend fun uploadBitmapToStorage(
+        bitmap: Bitmap,
+        organizationId: String,
+        itemId: String,
+        index: Int
+    ): Result<String> = withContext(dispatchers.io) {
+        val st = storage ?: return@withContext Result.failure(Exception("Cloud Storage not initialized"))
+        try {
+            val ref = st.reference.child("organizations/$organizationId/items/$itemId/img_$index.jpg")
+            val baos = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+            val data = baos.toByteArray()
+
+            ref.putBytes(data).await()
+            val downloadUrl = ref.downloadUrl.await().toString()
+            Result.success(downloadUrl)
+        } catch (e: Exception) {
+            Log.e(TAG, "Cloud Storage photo upload failed: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
 
     override suspend fun createItemPost(post: ItemPost): Result<String> = withContext(dispatchers.io) {
         try {
+            // Write to Firestore
+            firestore?.let { db ->
+                try {
+                    val itemMap = mapOf(
+                        "id" to post.id,
+                        "trackingCode" to post.trackingCode,
+                        "organizationId" to post.organizationId,
+                        "userId" to post.userId,
+                        "userDisplayName" to post.userDisplayName,
+                        "title" to post.title,
+                        "description" to post.description,
+                        "type" to post.type.name,
+                        "category" to post.category.name,
+                        "buildingId" to post.location.building.id,
+                        "buildingCode" to post.location.building.code,
+                        "buildingName" to post.location.building.name,
+                        "zoneName" to post.location.building.zoneName,
+                        "buildingDesc" to post.location.building.landmarkName,
+                        "floorWing" to post.location.floorWing,
+                        "microLocation" to post.location.microLocationDetails,
+                        "dominantColor" to post.physicalAttributes.dominantColor,
+                        "material" to post.physicalAttributes.material,
+                        "condition" to post.physicalAttributes.condition,
+                        "distinguishingFeatures" to post.physicalAttributes.distinguishingFeatures,
+                        "acceptedTags" to post.acceptedTags,
+                        "imageUrls" to post.imageUrls,
+                        "status" to post.status.name,
+                        "contact" to post.finderOrOwnerContact,
+                        "remarks" to post.actionTakenRemarks,
+                        "createdAtTimestamp" to post.createdAtTimestamp
+                    )
+
+                    db.collection("organizations")
+                        .document(post.organizationId)
+                        .collection("items")
+                        .document(post.id)
+                        .set(itemMap)
+                        .await()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Firestore write for item ${post.id} failed: ${e.message}")
+                }
+            }
+
             val updated = postsStateFlow.value.toMutableList()
             updated.add(0, post)
             postsStateFlow.value = updated
             Result.success(post.id)
         } catch (e: Exception) {
+            Log.e(TAG, "Create item post exception: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -160,17 +199,99 @@ class ItemRepositoryImpl(
         postsStateFlow.value.firstOrNull { it.id == id }
     }
 
-    override fun getRecentItemPosts(type: ItemType?): Flow<List<ItemPost>> {
+    override fun getRecentItemPosts(
+        type: ItemType?,
+        category: ItemCategory?,
+        searchQuery: String,
+        status: PostStatus?,
+        organizationId: String
+    ): Flow<List<ItemPost>> {
         return postsStateFlow.map { list ->
-            if (type == null) list else list.filter { it.type == type }
+            list.filter { post ->
+                val typeMatch = type == null || post.type == type
+                val categoryMatch = category == null || post.category == category
+                val statusMatch = status == null || post.status == status
+                val orgMatch = post.organizationId == organizationId
+                val queryMatch = searchQuery.isBlank() ||
+                        post.title.contains(searchQuery, ignoreCase = true) ||
+                        post.description.contains(searchQuery, ignoreCase = true) ||
+                        post.location.building.name.contains(searchQuery, ignoreCase = true) ||
+                        post.acceptedTags.any { it.contains(searchQuery, ignoreCase = true) }
+
+                typeMatch && categoryMatch && statusMatch && orgMatch && queryMatch
+            }
+        }
+    }
+
+    override fun getPostsByUser(userId: String): Flow<List<ItemPost>> {
+        return postsStateFlow.map { list ->
+            list.filter { it.userId == userId }
         }
     }
 
     override suspend fun updatePostStatus(id: String, status: PostStatus): Boolean = withContext(dispatchers.io) {
         val updated = postsStateFlow.value.map {
-            if (it.id == id) it.copy(status = status) else it
+            if (it.id == id) {
+                val newPost = it.copy(status = status)
+                firestore?.let { db ->
+                    try {
+                        db.collection("organizations")
+                            .document(it.organizationId)
+                            .collection("items")
+                            .document(id)
+                            .update("status", status.name)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Firestore status update error: ${e.message}")
+                    }
+                }
+                newPost
+            } else it
         }
         postsStateFlow.value = updated
         true
+    }
+
+    override suspend fun deletePost(id: String): Boolean = withContext(dispatchers.io) {
+        val target = postsStateFlow.value.firstOrNull { it.id == id }
+        if (target != null) {
+            firestore?.let { db ->
+                try {
+                    db.collection("organizations")
+                        .document(target.organizationId)
+                        .collection("items")
+                        .document(id)
+                        .delete()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Firestore delete post error: ${e.message}")
+                }
+            }
+        }
+        val updated = postsStateFlow.value.filterNot { it.id == id }
+        val changed = updated.size != postsStateFlow.value.size
+        postsStateFlow.value = updated
+        changed
+    }
+
+    override suspend fun toggleSavePost(userId: String, postId: String): Boolean = withContext(dispatchers.io) {
+        val currentMap = savedPostsUserMap.value.toMutableMap()
+        val userSet = currentMap[userId]?.toMutableSet() ?: mutableSetOf()
+        val isSavedNow: Boolean
+        if (userSet.contains(postId)) {
+            userSet.remove(postId)
+            isSavedNow = false
+        } else {
+            userSet.add(postId)
+            isSavedNow = true
+        }
+        currentMap[userId] = userSet
+        savedPostsUserMap.value = currentMap
+        isSavedNow
+    }
+
+    override fun getSavedPosts(userId: String): Flow<List<ItemPost>> {
+        return savedPostsUserMap.map { map ->
+            val savedIds = map[userId] ?: emptySet()
+            postsStateFlow.value.filter { savedIds.contains(it.id) }
+        }
     }
 }

@@ -7,5 +7,5 @@ interface ItemClassificationRepository {
     /**
      * Downsamples and compresses bitmap stream before running native multimodal classifier.
      */
-    suspend fun classifyItemImage(bitmap: Bitmap): Result<AIVectorMetadata>
+    suspend fun classifyItemImage(bitmap: Bitmap?): Result<AIVectorMetadata>
 }

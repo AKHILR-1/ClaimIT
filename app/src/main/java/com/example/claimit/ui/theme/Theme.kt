@@ -1,12 +1,12 @@
 package com.example.claimit.ui.theme
 
 import android.app.Activity
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -32,11 +32,11 @@ private val DarkEditorialColorScheme = darkColorScheme(
 
 private val LightEditorialColorScheme = lightColorScheme(
     primary = AccentCyanDark,
-    onPrimary = LightSlateSurface,
+    onPrimary = Color.White,
     primaryContainer = LightSlateSurfaceElevated,
     onPrimaryContainer = TextPrimaryLight,
     secondary = TagAiIndigo,
-    onSecondary = TextPrimaryDark,
+    onSecondary = Color.White,
     background = LightSlateBackground,
     onBackground = TextPrimaryLight,
     surface = LightSlateSurface,
@@ -46,12 +46,12 @@ private val LightEditorialColorScheme = lightColorScheme(
     outline = LightBorderOutline,
     outlineVariant = LightBorderHighlight,
     error = StatusLostCrimson,
-    onError = LightSlateSurface
+    onError = Color.White
 )
 
 @Composable
 fun ClaimITTheme(
-    darkTheme: Boolean = true, // Default to sleek dark editorial mode
+    darkTheme: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) DarkEditorialColorScheme else LightEditorialColorScheme
@@ -60,7 +60,7 @@ fun ClaimITTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.background.toArgb()
+            window.statusBarColor = colorScheme.surface.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
         }
     }
@@ -71,3 +71,4 @@ fun ClaimITTheme(
         content = content
     )
 }
+

@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "227981384600",
+    "firebase_url": "https://claimit-322b5-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "claimit-322b5",
+    "storage_bucket": "claimit-322b5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:227981384600:android:805ef4b6868be2d43fa9ed",
+        "android_client_info": {
+          "package_name": "com.example.claimit"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjWaDaLxNa1UKEBlFGkioX0VaOFj91THA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,8 +1,9 @@
 package com.example.claimit.presentation.postcreation.components
 
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
+import android.graphics.ImageDecoder
+import android.os.Build
+import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -38,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.claimit.ui.theme.TagAiIndigo
@@ -51,11 +53,29 @@ fun MediaDrawerComponent(
     onBitmapRemoved: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
     ) { bitmap ->
         if (bitmap != null) {
             onBitmapAdded(bitmap)
+        }
+    }
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri))
+                } else {
+                    @Suppress("DEPRECATION")
+                    MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+                }
+                bitmap?.let { onBitmapAdded(it) }
+            } catch (_: Exception) {}
         }
     }
 
@@ -140,30 +160,27 @@ fun MediaDrawerComponent(
                     }
                 }
 
-                // Quick Demo Sample Photo Button
+                // Choose from Gallery Button
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(6.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
-                        .clickable {
-                            val sample = createSampleBitmap()
-                            onBitmapAdded(sample)
-                        }
+                        .clickable { galleryLauncher.launch("image/*") }
                         .padding(vertical = 16.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
                             imageVector = Icons.Default.PhotoLibrary,
-                            contentDescription = "Load Sample",
+                            contentDescription = "Choose from Gallery",
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "LOAD DEMO SAMPLE",
+                            text = "CHOOSE FROM GALLERY",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -231,22 +248,4 @@ fun MediaDrawerComponent(
             }
         }
     }
-}
-
-private fun createSampleBitmap(): Bitmap {
-    val bitmap = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    val paint = Paint()
-    paint.color = android.graphics.Color.DKGRAY
-    canvas.drawRect(0f, 0f, 400f, 400f, paint)
-
-    paint.color = android.graphics.Color.WHITE
-    canvas.drawRoundRect(100f, 100f, 300f, 300f, 30f, 30f, paint)
-
-    paint.color = android.graphics.Color.CYAN
-    paint.textSize = 30f
-    paint.isFakeBoldText = true
-    canvas.drawText("AIRPODS PRO", 110f, 210f, paint)
-
-    return bitmap
 }

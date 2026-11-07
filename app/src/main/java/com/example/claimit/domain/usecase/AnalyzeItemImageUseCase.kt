@@ -5,9 +5,9 @@ import com.example.claimit.domain.model.AIVectorMetadata
 import com.example.claimit.domain.repository.ItemClassificationRepository
 
 class AnalyzeItemImageUseCase(
-    private val classificationRepository: ItemClassificationRepository
+    private val itemClassificationRepository: ItemClassificationRepository
 ) {
-    suspend operator fun invoke(bitmap: Bitmap): Result<AIVectorMetadata> {
-        return classificationRepository.classifyItemImage(bitmap)
+    suspend operator fun invoke(bitmap: Bitmap?): Result<AIVectorMetadata> {
+        return itemClassificationRepository.classifyItemImage(bitmap)
     }
 }

@@ -1,0 +1,48 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid",
+        "collegeEmail": {
+          ".validate": "!data.exists() || data.val() === newData.val()"
+        },
+        "registrationNumber": {
+          ".validate": "!data.exists() || data.val() === newData.val()"
+        },
+        "role": {
+          ".validate": "!data.exists() || (data.val() === newData.val() || auth.token.admin === true)"
+        }
+      }
+    },
+    "notifications": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null"
+      }
+    },
+    "claims": {
+      ".read": "auth != null",
+      "$claimId": {
+        ".read": "auth != null && (!data.exists() || data.child('claimantUid').val() === auth.uid || data.child('uploaderUid').val() === auth.uid || auth.token.admin === true)",
+        ".write": "auth != null"
+      }
+    },
+    "fcmTokens": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$deviceId": {
+          ".write": "auth != null && auth.uid === $uid"
+        }
+      }
+    },
+    "organizations": {
+      "$orgId": {
+        "items": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    }
+  }
+}

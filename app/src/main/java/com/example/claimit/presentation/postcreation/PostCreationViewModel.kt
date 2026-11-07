@@ -9,6 +9,7 @@ import com.example.claimit.domain.model.Building
 import com.example.claimit.domain.model.DetectedAttribute
 import com.example.claimit.domain.model.DuplicateMatchResult
 import com.example.claimit.domain.model.ItemCategory
+import com.example.claimit.domain.repository.AuthRepository
 import com.example.claimit.domain.repository.CampusLocationRepository
 import com.example.claimit.domain.usecase.AnalyzeItemImageUseCase
 import com.example.claimit.domain.usecase.CreateItemPostUseCase
@@ -28,7 +29,8 @@ class PostCreationViewModel(
     private val detectDuplicateListingsUseCase: DetectDuplicateListingsUseCase,
     private val createItemPostUseCase: CreateItemPostUseCase,
     private val locationRepository: CampusLocationRepository,
-    private val dispatchers: CoroutineDispatchers
+    private val dispatchers: CoroutineDispatchers,
+    private val authRepository: AuthRepository? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PostCreationUiState())
@@ -304,6 +306,10 @@ class PostCreationViewModel(
             return
         }
 
+        val currentUser = authRepository?.currentUserState?.value
+        val userId = currentUser?.id ?: "user_${System.currentTimeMillis()}"
+        val userDisplayName = currentUser?.displayName ?: "Campus Member"
+
         viewModelScope.launch(dispatchers.default) {
             _uiState.update { it.copy(isSubmitting = true) }
 
@@ -316,9 +322,11 @@ class PostCreationViewModel(
                 physicalAttributes = currentState.physicalAttributes,
                 aiMetadata = currentState.aiMetadata,
                 acceptedTags = currentState.acceptedTags,
-                imageUrls = emptyList(), // Local bitmap pipeline simulated
+                imageUrls = emptyList(),
                 contactInfo = currentState.contactInfo,
-                actionTakenRemarks = currentState.actionTakenRemarks
+                actionTakenRemarks = currentState.actionTakenRemarks,
+                userId = userId,
+                userDisplayName = userDisplayName
             )
 
             result.onSuccess { postId ->

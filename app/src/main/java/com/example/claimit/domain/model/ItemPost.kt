@@ -8,8 +8,12 @@ enum class ItemType {
 enum class PostStatus {
     DRAFT,
     ACTIVE,
-    MATCHED,
-    RESOLVED,
+    POTENTIAL_MATCH,
+    CLAIM_PENDING,
+    CLAIM_APPROVED,
+    RETURNED,
+    REJECTED,
+    REMOVED,
     ARCHIVED
 }
 
@@ -27,6 +31,9 @@ enum class ItemCategory(val displayName: String) {
 data class ItemPost(
     val id: String,
     val trackingCode: String,
+    val organizationId: String = "lpu_main_campus",
+    val userId: String = "user_default",
+    val userDisplayName: String = "Campus Member",
     val title: String,
     val description: String,
     val type: ItemType,
@@ -39,5 +46,7 @@ data class ItemPost(
     val createdAtTimestamp: Long,
     val status: PostStatus = PostStatus.ACTIVE,
     val finderOrOwnerContact: String,
-    val actionTakenRemarks: String = ""
+    val actionTakenRemarks: String = "",
+    val privateVerificationQuestion: String = "",
+    val privateVerificationAnswer: String = ""
 )
