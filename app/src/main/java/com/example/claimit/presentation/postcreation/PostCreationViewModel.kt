@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.claimit.core.dispatchers.CoroutineDispatchers
+import com.example.claimit.data.repository.ItemRepositoryImpl
 import com.example.claimit.domain.model.AttributeType
 import com.example.claimit.domain.model.Building
 import com.example.claimit.domain.model.DetectedAttribute
@@ -11,6 +12,7 @@ import com.example.claimit.domain.model.DuplicateMatchResult
 import com.example.claimit.domain.model.ItemCategory
 import com.example.claimit.domain.repository.AuthRepository
 import com.example.claimit.domain.repository.CampusLocationRepository
+import com.example.claimit.domain.repository.ItemRepository
 import com.example.claimit.domain.usecase.AnalyzeItemImageUseCase
 import com.example.claimit.domain.usecase.CreateItemPostUseCase
 import com.example.claimit.domain.usecase.DetectDuplicateListingsUseCase
@@ -23,6 +25,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 class PostCreationViewModel(
     private val analyzeItemImageUseCase: AnalyzeItemImageUseCase,
@@ -30,7 +33,8 @@ class PostCreationViewModel(
     private val createItemPostUseCase: CreateItemPostUseCase,
     private val locationRepository: CampusLocationRepository,
     private val dispatchers: CoroutineDispatchers,
-    private val authRepository: AuthRepository? = null
+    private val authRepository: AuthRepository? = null,
+    private val itemRepository: ItemRepository? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PostCreationUiState())
@@ -199,7 +203,6 @@ class PostCreationViewModel(
                         state.acceptedTags.contains(detected.value)
                     }
 
-                    // Auto-fill physical attributes if currently empty
                     var currentAttrs = state.physicalAttributes
                     metadata.detectedAttributes.forEach { attr ->
                         when (attr.type) {
@@ -239,7 +242,6 @@ class PostCreationViewModel(
                 state.acceptedTags + attribute.value
             } else state.acceptedTags
 
-            // Also accept into category or physical attributes if appropriate
             val categoryMatch = if (attribute.type == AttributeType.CATEGORY) {
                 ItemCategory.entries.find { it.displayName.equals(attribute.value, ignoreCase = true) } ?: state.selectedCategory
             } else state.selectedCategory
@@ -255,7 +257,7 @@ class PostCreationViewModel(
     private fun searchBuildingsFuzzyDebounced(query: String) {
         locationSearchJob?.cancel()
         locationSearchJob = viewModelScope.launch(dispatchers.io) {
-            delay(150) // Fast search debounce
+            delay(150)
             val results = locationRepository.searchBuildingsFuzzy(query)
             _uiState.update { it.copy(filteredBuildings = results) }
         }
@@ -264,7 +266,7 @@ class PostCreationViewModel(
     private fun triggerDuplicateCheckDebounced() {
         duplicateCheckJob?.cancel()
         duplicateCheckJob = viewModelScope.launch(dispatchers.default) {
-            delay(300) // 300ms debounce
+            delay(300)
             val currentState = _uiState.value
             if (currentState.title.trim().length < 3) {
                 _uiState.update { it.copy(duplicateMatches = emptyList()) }
@@ -309,9 +311,31 @@ class PostCreationViewModel(
         val currentUser = authRepository?.currentUserState?.value
         val userId = currentUser?.id ?: "user_${System.currentTimeMillis()}"
         val userDisplayName = currentUser?.displayName ?: "Campus Member"
+        val orgId = currentUser?.organizationId ?: "lpu_main_campus"
 
         viewModelScope.launch(dispatchers.default) {
-            _uiState.update { it.copy(isSubmitting = true) }
+            _uiState.update { it.copy(isSubmitting = true, uploadProgressMessage = "Preparing report...") }
+
+            val uploadedUrls = mutableListOf<String>()
+            val bitmaps = currentState.capturedBitmaps
+            val tempId = "post_${UUID.randomUUID()}"
+
+            if (bitmaps.isNotEmpty() && itemRepository is ItemRepositoryImpl) {
+                bitmaps.forEachIndexed { index, bitmap ->
+                    _uiState.update { it.copy(uploadProgressMessage = "Uploading photo ${index + 1} of ${bitmaps.size}...") }
+                    val uploadResult = itemRepository.uploadBitmapToStorage(
+                        bitmap = bitmap,
+                        organizationId = orgId,
+                        itemId = tempId,
+                        index = index
+                    )
+                    uploadResult.onSuccess { url ->
+                        uploadedUrls.add(url)
+                    }
+                }
+            }
+
+            _uiState.update { it.copy(uploadProgressMessage = "Publishing report to campus database...") }
 
             val result = createItemPostUseCase(
                 title = currentState.title,
@@ -322,17 +346,19 @@ class PostCreationViewModel(
                 physicalAttributes = currentState.physicalAttributes,
                 aiMetadata = currentState.aiMetadata,
                 acceptedTags = currentState.acceptedTags,
-                imageUrls = emptyList(),
+                imageUrls = uploadedUrls,
                 contactInfo = currentState.contactInfo,
                 actionTakenRemarks = currentState.actionTakenRemarks,
                 userId = userId,
-                userDisplayName = userDisplayName
+                userDisplayName = userDisplayName,
+                organizationId = orgId
             )
 
             result.onSuccess { postId ->
                 _uiState.update { state ->
                     state.copy(
                         isSubmitting = false,
+                        uploadProgressMessage = null,
                         createdPostId = postId
                     )
                 }
@@ -342,6 +368,7 @@ class PostCreationViewModel(
                 _uiState.update { state ->
                     state.copy(
                         isSubmitting = false,
+                        uploadProgressMessage = null,
                         errorMessage = "Failed to submit post: ${error.localizedMessage}"
                     )
                 }

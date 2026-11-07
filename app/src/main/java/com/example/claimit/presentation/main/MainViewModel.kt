@@ -219,6 +219,18 @@ class MainViewModel(
         }
     }
 
+    fun withdrawReport(postId: String) {
+        viewModelScope.launch(dispatchers.io) {
+            itemRepository.updatePostStatus(postId, com.example.claimit.domain.model.PostStatus.ARCHIVED)
+        }
+    }
+
+    fun editReport(post: com.example.claimit.domain.model.ItemPost) {
+        viewModelScope.launch(dispatchers.io) {
+            itemRepository.updateItemPost(post)
+        }
+    }
+
     fun confirmItemHandover(claimId: String, isUploader: Boolean, onResult: (Boolean, String?) -> Unit = { _, _ -> }) {
         viewModelScope.launch(dispatchers.io) {
             val user = currentUserState.value ?: return@launch

@@ -146,6 +146,7 @@ fun ClaimItMainScreen(
                         ClaimItNavDestination.FEED -> {
                             CampusFeedScreen(
                                 itemRepository = mainViewModel.itemRepository,
+                                organizationId = currentUser.organizationId,
                                 onConnectContact = { contact ->
                                     Toast.makeText(context, "Contacting: $contact", Toast.LENGTH_LONG).show()
                                 },
@@ -161,6 +162,18 @@ fun ClaimItMainScreen(
                         }
                         ClaimItNavDestination.REPORT -> {
                             PostCreationScreen(viewModel = postCreationViewModel)
+                        }
+                        ClaimItNavDestination.MY_REPORTS -> {
+                            com.example.claimit.presentation.reports.MyReportsScreen(
+                                currentUserId = currentUser.id,
+                                itemRepository = mainViewModel.itemRepository,
+                                onWithdrawReport = { postId ->
+                                    mainViewModel.withdrawReport(postId)
+                                },
+                                onEditReport = { post ->
+                                    mainViewModel.editReport(post)
+                                }
+                            )
                         }
                         ClaimItNavDestination.MATCHES -> {
                             VectorMatchesScreen(viewModel = postCreationViewModel)

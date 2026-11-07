@@ -44,6 +44,7 @@ data class PostCreationUiState(
 
     // Form lifecycle state
     val isSubmitting: Boolean = false,
+    val uploadProgressMessage: String? = null,
     val createdPostId: String? = null,
     val errorMessage: String? = null
 ) {

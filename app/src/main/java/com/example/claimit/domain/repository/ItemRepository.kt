@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 
 interface ItemRepository {
     suspend fun createItemPost(post: ItemPost): Result<String>
+    suspend fun updateItemPost(post: ItemPost): Result<Unit>
     suspend fun getItemPostById(id: String): ItemPost?
     fun getRecentItemPosts(
         type: ItemType? = null,

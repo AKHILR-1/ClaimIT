@@ -63,7 +63,8 @@ fun CampusFeedScreen(
     onConnectContact: (String) -> Unit,
     onSubmitClaim: (itemId: String, itemTitle: String, verificationAnswer: String, proofDetails: String) -> Unit,
     onReportItem: (itemId: String, title: String, reason: ReportReason, details: String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    organizationId: String = "lpu_main_campus"
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedTypeFilter by remember { mutableStateOf<ItemType?>(null) }
@@ -75,7 +76,8 @@ fun CampusFeedScreen(
     val feedListings by itemRepository.getRecentItemPosts(
         type = selectedTypeFilter,
         category = selectedCategoryFilter,
-        searchQuery = searchQuery
+        searchQuery = searchQuery,
+        organizationId = organizationId
     ).collectAsState(initial = emptyList())
 
     Column(

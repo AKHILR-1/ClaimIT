@@ -57,7 +57,8 @@ class MainActivity : ComponentActivity() {
                     createItemPostUseCase = createPostUseCase,
                     locationRepository = locationRepository,
                     dispatchers = dispatchers,
-                    authRepository = authRepository
+                    authRepository = authRepository,
+                    itemRepository = itemRepository
                 ) as T
             }
         }
