@@ -96,4 +96,16 @@ class AuthRepositoryTest {
         assertEquals("student.orig@college.edu", updatedUser?.collegeEmail)
         assertEquals("personal.email@gmail.com", updatedUser?.contactEmail)
     }
+
+    @Test
+    fun `registerSession for student returns session id`() = runBlocking {
+        val sessionResult = authRepository.registerSession(
+            userId = "user_student_1",
+            deviceId = "dev_001",
+            deviceName = "Android Test Device",
+            isAdmin = false
+        )
+        assertTrue(sessionResult.isSuccess)
+        assertNotNull(sessionResult.getOrNull())
+    }
 }

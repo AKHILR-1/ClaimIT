@@ -10,15 +10,22 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.UserProfileChangeRequest
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
+import com.google.firebase.database.ValueEventListener
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 class AuthRepositoryImpl(
     private val dispatchers: CoroutineDispatchers,
@@ -587,6 +594,237 @@ class AuthRepositoryImpl(
         } catch (e: Exception) {
             Log.w(TAG, "Remove FCM token failed: ${e.message}")
             Result.failure(e)
+        }
+    }
+
+    override suspend fun registerSession(
+        userId: String,
+        deviceId: String,
+        deviceName: String,
+        isAdmin: Boolean
+    ): Result<String> = withContext(dispatchers.io) {
+        try {
+            val rtdb = realtimeDatabase
+            val sessionId = "session_${UUID.randomUUID()}"
+
+            if (rtdb != null && userId.isNotBlank()) {
+                val sessionsRef = rtdb.reference.child("deviceSessions").child(userId)
+                val snapshot = sessionsRef.get().await()
+
+                if (isAdmin) {
+                    var activeCount = 0
+                    if (snapshot.exists()) {
+                        for (child in snapshot.children) {
+                            val isActive = child.child("isActive").getValue(Boolean::class.java) ?: false
+                            if (isActive) activeCount++
+                        }
+                    }
+                    if (activeCount >= 3) {
+                        return@withContext Result.failure(
+                            Exception("Maximum admin device limit reached. ClaimIT admin access is already active on three devices. Sign out from an existing device to continue.")
+                        )
+                    }
+                } else {
+                    // Student: revoke all previous active sessions to maintain ONE device limit
+                    if (snapshot.exists()) {
+                        val updates = mutableMapOf<String, Any>()
+                        for (child in snapshot.children) {
+                            val childId = child.key ?: continue
+                            updates["$childId/isActive"] = false
+                        }
+                        if (updates.isNotEmpty()) {
+                            sessionsRef.updateChildren(updates).await()
+                        }
+                    }
+                }
+
+                val sessionMap = mapOf(
+                    "sessionId" to sessionId,
+                    "userId" to userId,
+                    "deviceId" to deviceId,
+                    "deviceName" to deviceName,
+                    "isActive" to true,
+                    "createdAt" to ServerValue.TIMESTAMP,
+                    "lastActive" to ServerValue.TIMESTAMP
+                )
+
+                sessionsRef.child(sessionId).setValue(sessionMap).await()
+            }
+
+            Result.success(sessionId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Register session failed: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    override fun observeSessionRevocation(userId: String, sessionId: String): Flow<Boolean> {
+        val rtdb = realtimeDatabase
+        if (rtdb == null || userId.isBlank() || sessionId.isBlank()) {
+            return kotlinx.coroutines.flow.flowOf(false)
+        }
+
+        return callbackFlow {
+            val ref = rtdb.reference.child("deviceSessions").child(userId).child(sessionId)
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    if (snapshot.exists()) {
+                        val isActive = snapshot.child("isActive").getValue(Boolean::class.java) ?: true
+                        if (!isActive) {
+                            trySend(true) // Session is revoked!
+                        }
+                    }
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.w(TAG, "Session listener cancelled: ${error.message}")
+                }
+            }
+
+            ref.addValueEventListener(listener)
+            awaitClose { ref.removeEventListener(listener) }
+        }
+    }
+
+    override fun getActiveDeviceSessions(userId: String): Flow<List<com.example.claimit.domain.model.DeviceSession>> {
+        val rtdb = realtimeDatabase
+        if (rtdb == null || userId.isBlank()) {
+            return kotlinx.coroutines.flow.flowOf(emptyList())
+        }
+
+        return callbackFlow {
+            val ref = rtdb.reference.child("deviceSessions").child(userId)
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val list = mutableListOf<com.example.claimit.domain.model.DeviceSession>()
+                    if (snapshot.exists()) {
+                        for (child in snapshot.children) {
+                            try {
+                                val sId = child.key ?: continue
+                                val dId = child.child("deviceId").getValue(String::class.java) ?: ""
+                                val dName = child.child("deviceName").getValue(String::class.java) ?: "Android Device"
+                                val active = child.child("isActive").getValue(Boolean::class.java) ?: false
+                                val created = child.child("createdAt").getValue(Long::class.java) ?: System.currentTimeMillis()
+                                val lastActive = child.child("lastActive").getValue(Long::class.java) ?: System.currentTimeMillis()
+
+                                if (active) {
+                                    list.add(
+                                        com.example.claimit.domain.model.DeviceSession(
+                                            sessionId = sId,
+                                            userId = userId,
+                                            deviceId = dId,
+                                            deviceName = dName,
+                                            isActive = active,
+                                            createdAtTimestamp = created,
+                                            lastActiveTimestamp = lastActive
+                                        )
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error parsing device session: ${e.message}")
+                            }
+                        }
+                    }
+                    trySend(list)
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.w(TAG, "Device sessions listener cancelled: ${error.message}")
+                }
+            }
+
+            ref.addValueEventListener(listener)
+            awaitClose { ref.removeEventListener(listener) }
+        }
+    }
+
+    override suspend fun revokeSession(userId: String, sessionId: String): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            realtimeDatabase?.let { rtdb ->
+                rtdb.reference.child("deviceSessions").child(userId).child(sessionId).child("isActive").setValue(false).await()
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun suspendUserAccount(userId: String): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            realtimeDatabase?.let { rtdb ->
+                rtdb.reference.child("users").child(userId).child("status").setValue(AccountStatus.SUSPENDED.name).await()
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun unsuspendUserAccount(userId: String): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            realtimeDatabase?.let { rtdb ->
+                rtdb.reference.child("users").child(userId).child("status").setValue(AccountStatus.VERIFIED.name).await()
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override fun getAllRegisteredUsers(): Flow<List<User>> {
+        val rtdb = realtimeDatabase
+        if (rtdb == null) {
+            return kotlinx.coroutines.flow.flowOf(userDatabase.values.toList())
+        }
+
+        return callbackFlow {
+            val ref = rtdb.reference.child("users")
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val list = mutableListOf<User>()
+                    if (snapshot.exists()) {
+                        for (child in snapshot.children) {
+                            try {
+                                val uid = child.key ?: continue
+                                val email = child.child("email").getValue(String::class.java) ?: child.child("contactEmail").getValue(String::class.java) ?: ""
+                                val fullName = child.child("fullName").getValue(String::class.java) ?: child.child("displayName").getValue(String::class.java) ?: email.substringBefore("@")
+                                val colEmail = child.child("collegeEmail").getValue(String::class.java) ?: email
+                                val regNum = child.child("registrationNumber").getValue(String::class.java) ?: child.child("studentRegistrationNumber").getValue(String::class.java) ?: ""
+                                val roleStr = child.child("role").getValue(String::class.java) ?: UserRole.STUDENT.name
+                                val statusStr = child.child("status").getValue(String::class.java) ?: AccountStatus.VERIFIED.name
+
+                                val role = try { UserRole.valueOf(roleStr) } catch (_: Exception) { UserRole.STUDENT }
+                                val status = try { AccountStatus.valueOf(statusStr) } catch (_: Exception) { AccountStatus.VERIFIED }
+
+                                list.add(
+                                    User(
+                                        id = uid,
+                                        email = email,
+                                        displayName = fullName,
+                                        collegeEmail = colEmail,
+                                        studentId = regNum,
+                                        registrationNumber = regNum,
+                                        organizationId = "lpu_main_campus",
+                                        role = role,
+                                        status = status,
+                                        isEmailVerified = true
+                                    )
+                                )
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error parsing registered user: ${e.message}")
+                            }
+                        }
+                    }
+                    trySend(list)
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.w(TAG, "All users listener cancelled: ${error.message}")
+                }
+            }
+
+            ref.addValueEventListener(listener)
+            awaitClose { ref.removeEventListener(listener) }
         }
     }
 

@@ -36,6 +36,27 @@
         }
       }
     },
+    "deviceSessions": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true)",
+        ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true)"
+      }
+    },
+    "moderationReports": {
+      ".read": "auth != null",
+      "$reportId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "moderationAudit": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "adminConfiguration": {
+      ".read": "auth != null",
+      ".write": "auth != null && auth.token.admin === true"
+    },
     "organizations": {
       "$orgId": {
         "items": {

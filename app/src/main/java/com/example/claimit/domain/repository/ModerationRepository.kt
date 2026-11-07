@@ -25,4 +25,7 @@ interface ModerationRepository {
     // Admin functions
     fun getReportedContentQueue(organizationId: String = "lpu_main_campus"): Flow<List<ReportedContent>>
     suspend fun resolveReport(reportId: String, status: ReportStatus, adminId: String): Result<Unit>
+    suspend fun resolveReportWithDecision(reportId: String, status: ReportStatus, adminId: String, decision: String, explanation: String): Result<Unit>
+    suspend fun adminRemoveListing(itemId: String, adminUid: String, reason: String, explanation: String): Result<Unit>
+    fun getModerationAuditLogs(): Flow<List<com.example.claimit.domain.model.ModerationAudit>>
 }

@@ -11,8 +11,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -31,12 +34,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.claimit.domain.model.ItemPost
 import com.example.claimit.domain.model.UserRole
 import com.example.claimit.presentation.admin.AdminDashboardScreen
 import com.example.claimit.presentation.auth.AuthScreen
 import com.example.claimit.presentation.auth.EmailVerificationScreen
 import com.example.claimit.presentation.claims.ClaimsScreen
 import com.example.claimit.presentation.feed.CampusFeedScreen
+import com.example.claimit.presentation.feed.ItemDetailsScreen
 import com.example.claimit.presentation.matches.VectorMatchesScreen
 import com.example.claimit.presentation.navigation.ClaimItNavDestination
 import com.example.claimit.presentation.notifications.NotificationsSheet
@@ -44,6 +49,7 @@ import com.example.claimit.presentation.postcreation.PostCreationScreen
 import com.example.claimit.presentation.postcreation.PostCreationViewModel
 import com.example.claimit.presentation.postcreation.components.ClaimItHeader
 import com.example.claimit.presentation.profile.ProfileScreen
+import com.example.claimit.ui.theme.StatusLostCrimson
 import com.example.claimit.ui.theme.StatusPendingAmber
 import com.example.claimit.ui.theme.TagAiIndigo
 
@@ -58,6 +64,7 @@ fun ClaimItMainScreen(
     val context = LocalContext.current
     var currentDestination by remember { mutableStateOf(ClaimItNavDestination.FEED) }
     var isNotificationsSheetOpen by remember { mutableStateOf(false) }
+    var viewingDetailsPost by remember { mutableStateOf<ItemPost?>(null) }
 
     val userState by mainViewModel.currentUserState.collectAsState()
     val isAuthLoading by mainViewModel.isAuthLoading.collectAsState()
@@ -70,7 +77,11 @@ fun ClaimItMainScreen(
     val mySubmittedClaims by mainViewModel.mySubmittedClaims.collectAsState()
     val incomingClaimsToReview by mainViewModel.incomingClaimsToReview.collectAsState()
     val reportedQueue by mainViewModel.reportedQueue.collectAsState()
+    val auditLogs by mainViewModel.moderationAuditLogs.collectAsState()
+    val registeredUsers by mainViewModel.registeredUsers.collectAsState()
+    val activeDeviceSessions by mainViewModel.activeDeviceSessions.collectAsState()
     val savedPosts by mainViewModel.savedPosts.collectAsState()
+    val isSessionRevoked by mainViewModel.isSessionRevoked.collectAsState()
 
     val currentUser = userState
 
@@ -125,6 +136,7 @@ fun ClaimItMainScreen(
                     matchCount = postUiState.duplicateMatches.size,
                     userRole = currentUser.role,
                     onDestinationSelected = { destination ->
+                        viewingDetailsPost = null
                         currentDestination = destination
                     }
                 )
@@ -137,86 +149,131 @@ fun ClaimItMainScreen(
                     .padding(innerPadding)
                     .background(MaterialTheme.colorScheme.background)
             ) {
-                AnimatedContent(
-                    targetState = currentDestination,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
-                    label = "pageTransition"
-                ) { destination ->
-                    when (destination) {
-                        ClaimItNavDestination.FEED -> {
-                            CampusFeedScreen(
-                                itemRepository = mainViewModel.itemRepository,
-                                organizationId = currentUser.organizationId,
-                                onConnectContact = { contact ->
-                                    Toast.makeText(context, "Contacting: $contact", Toast.LENGTH_LONG).show()
-                                },
-                                onSubmitClaim = { itemId, title, answer, proof ->
-                                    mainViewModel.submitClaim(itemId, title, answer, proof)
-                                    Toast.makeText(context, "Ownership claim submitted successfully!", Toast.LENGTH_LONG).show()
-                                },
-                                onReportItem = { itemId, title, reason, details ->
-                                    mainViewModel.reportItem(itemId, title, reason, details)
-                                    Toast.makeText(context, "Report sent to campus administration.", Toast.LENGTH_LONG).show()
-                                }
-                            )
+                if (viewingDetailsPost != null) {
+                    ItemDetailsScreen(
+                        post = viewingDetailsPost!!,
+                        currentUserId = currentUser.id,
+                        currentUserRole = currentUser.role,
+                        onBackClicked = { viewingDetailsPost = null },
+                        onSubmitClaim = { itemId, title, answer, proof ->
+                            mainViewModel.submitClaim(itemId, title, answer, proof)
+                            Toast.makeText(context, "Ownership claim submitted!", Toast.LENGTH_LONG).show()
+                        },
+                        onReportToAdmin = { itemId, title, reason, details ->
+                            mainViewModel.reportItemToAdmin(itemId, title, reason, details) { success, msg ->
+                                Toast.makeText(context, msg ?: "Report sent.", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onConnectContact = { contact ->
+                            Toast.makeText(context, "Contacting: $contact", Toast.LENGTH_LONG).show()
+                        },
+                        onWithdrawReport = { itemId ->
+                            mainViewModel.withdrawReport(itemId)
+                            viewingDetailsPost = null
+                            Toast.makeText(context, "Report withdrawn.", Toast.LENGTH_SHORT).show()
+                        },
+                        onAdminRemoveListing = { itemId, reason, explanation ->
+                            mainViewModel.adminRemoveListing(itemId, reason, explanation) { success, msg ->
+                                Toast.makeText(context, msg ?: "Listing removed.", Toast.LENGTH_SHORT).show()
+                            }
                         }
-                        ClaimItNavDestination.REPORT -> {
-                            PostCreationScreen(viewModel = postCreationViewModel)
-                        }
-                        ClaimItNavDestination.MY_REPORTS -> {
-                            com.example.claimit.presentation.reports.MyReportsScreen(
-                                currentUserId = currentUser.id,
-                                itemRepository = mainViewModel.itemRepository,
-                                onWithdrawReport = { postId ->
-                                    mainViewModel.withdrawReport(postId)
-                                },
-                                onEditReport = { post ->
-                                    mainViewModel.editReport(post)
-                                }
-                            )
-                        }
-                        ClaimItNavDestination.MATCHES -> {
-                            VectorMatchesScreen(viewModel = postCreationViewModel)
-                        }
-                        ClaimItNavDestination.CLAIMS -> {
-                            ClaimsScreen(
-                                mySubmittedClaims = mySubmittedClaims,
-                                claimsToReview = incomingClaimsToReview,
-                                onUpdateClaimStatus = { claimId, status, notes ->
-                                    mainViewModel.updateClaimStatus(claimId, status, notes)
-                                    Toast.makeText(context, "Claim status updated to ${status.name}", Toast.LENGTH_SHORT).show()
-                                },
-                                onConfirmHandover = { claimId, isUploader ->
-                                    mainViewModel.confirmItemHandover(claimId, isUploader) { success, msg ->
-                                        Toast.makeText(context, msg ?: "Handover updated.", Toast.LENGTH_LONG).show()
+                    )
+                } else {
+                    AnimatedContent(
+                        targetState = currentDestination,
+                        transitionSpec = { fadeIn() togetherWith fadeOut() },
+                        label = "pageTransition"
+                    ) { destination ->
+                        when (destination) {
+                            ClaimItNavDestination.FEED -> {
+                                CampusFeedScreen(
+                                    itemRepository = mainViewModel.itemRepository,
+                                    currentUserId = currentUser.id,
+                                    organizationId = currentUser.organizationId,
+                                    onViewDetails = { post ->
+                                        viewingDetailsPost = post
+                                    },
+                                    onDeleteReport = { postId ->
+                                        mainViewModel.withdrawReport(postId)
+                                        Toast.makeText(context, "Report deleted/withdrawn.", Toast.LENGTH_SHORT).show()
                                     }
-                                }
-                            )
-                        }
-                        ClaimItNavDestination.ADMIN -> {
-                            AdminDashboardScreen(
-                                reportedContentList = reportedQueue,
-                                onResolveReport = { reportId, status ->
-                                    mainViewModel.resolveReport(reportId, status)
-                                    Toast.makeText(context, "Report resolved: ${status.name}", Toast.LENGTH_SHORT).show()
-                                }
-                            )
-                        }
-                        ClaimItNavDestination.PROFILE -> {
-                            ProfileScreen(
-                                currentUser = currentUser,
-                                savedPosts = savedPosts,
-                                onLogoutClicked = { mainViewModel.logout() },
-                                onDeleteAccountClicked = {
-                                    mainViewModel.deleteAccount()
-                                    Toast.makeText(context, "Account deletion request processed.", Toast.LENGTH_LONG).show()
-                                },
-                                onUpdateContactEmailSubmitted = { newEmail, pass ->
-                                    mainViewModel.updateContactEmail(newEmail, pass) { success, msg ->
-                                        Toast.makeText(context, msg ?: "Update failed.", Toast.LENGTH_LONG).show()
+                                )
+                            }
+                            ClaimItNavDestination.REPORT -> {
+                                PostCreationScreen(viewModel = postCreationViewModel)
+                            }
+                            ClaimItNavDestination.MY_REPORTS -> {
+                                com.example.claimit.presentation.reports.MyReportsScreen(
+                                    currentUserId = currentUser.id,
+                                    itemRepository = mainViewModel.itemRepository,
+                                    onWithdrawReport = { postId ->
+                                        mainViewModel.withdrawReport(postId)
+                                    },
+                                    onEditReport = { post ->
+                                        mainViewModel.editReport(post)
                                     }
-                                }
-                            )
+                                )
+                            }
+                            ClaimItNavDestination.MATCHES -> {
+                                VectorMatchesScreen(viewModel = postCreationViewModel)
+                            }
+                            ClaimItNavDestination.CLAIMS -> {
+                                ClaimsScreen(
+                                    mySubmittedClaims = mySubmittedClaims,
+                                    claimsToReview = incomingClaimsToReview,
+                                    onUpdateClaimStatus = { claimId, status, notes ->
+                                        mainViewModel.updateClaimStatus(claimId, status, notes)
+                                        Toast.makeText(context, "Claim status updated to ${status.name}", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onConfirmHandover = { claimId, isUploader ->
+                                        mainViewModel.confirmItemHandover(claimId, isUploader) { success, msg ->
+                                            Toast.makeText(context, msg ?: "Handover updated.", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                )
+                            }
+                            ClaimItNavDestination.ADMIN -> {
+                                AdminDashboardScreen(
+                                    reportedContentList = reportedQueue,
+                                    auditLogs = auditLogs,
+                                    registeredUsers = registeredUsers,
+                                    activeDeviceSessions = activeDeviceSessions,
+                                    onResolveReportWithDecision = { reportId, status, decision, explanation ->
+                                        mainViewModel.adminResolveReportWithDecision(reportId, status, decision, explanation)
+                                        Toast.makeText(context, "Moderation report resolved.", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onAdminRemoveListing = { itemId, reason, explanation ->
+                                        mainViewModel.adminRemoveListing(itemId, reason, explanation) { success, msg ->
+                                            Toast.makeText(context, msg ?: "Listing removed.", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    onSuspendUser = { uid ->
+                                        mainViewModel.suspendUserAccount(uid)
+                                    },
+                                    onUnsuspendUser = { uid ->
+                                        mainViewModel.unsuspendUserAccount(uid)
+                                    },
+                                    onRevokeSession = { uid, sId ->
+                                        mainViewModel.revokeDeviceSession(uid, sId)
+                                    }
+                                )
+                            }
+                            ClaimItNavDestination.PROFILE -> {
+                                ProfileScreen(
+                                    currentUser = currentUser,
+                                    savedPosts = savedPosts,
+                                    onLogoutClicked = { mainViewModel.logout() },
+                                    onDeleteAccountClicked = {
+                                        mainViewModel.deleteAccount()
+                                        Toast.makeText(context, "Account deletion request processed.", Toast.LENGTH_LONG).show()
+                                    },
+                                    onUpdateContactEmailSubmitted = { newEmail, pass ->
+                                        mainViewModel.updateContactEmail(newEmail, pass) { success, msg ->
+                                            Toast.makeText(context, msg ?: "Update failed.", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -235,6 +292,27 @@ fun ClaimItMainScreen(
                             currentDestination = ClaimItNavDestination.CLAIMS
                         } else if (notif.itemId.isNotBlank()) {
                             currentDestination = ClaimItNavDestination.FEED
+                        }
+                    }
+                )
+            }
+
+            if (isSessionRevoked) {
+                AlertDialog(
+                    onDismissRequest = { mainViewModel.acknowledgeSessionRevoking() },
+                    title = { Text("Session Revoked", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) },
+                    text = {
+                        Text(
+                            text = "Your ClaimIT account was signed in on another device. You have been logged out for security reasons.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = { mainViewModel.acknowledgeSessionRevoking() },
+                            colors = ButtonDefaults.buttonColors(containerColor = StatusLostCrimson)
+                        ) {
+                            Text("OK", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                         }
                     }
                 )

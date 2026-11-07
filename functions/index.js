@@ -173,3 +173,96 @@ exports.onClaimStatusUpdated = functions.database
     }
     return null;
   });
+
+/**
+ * Cloud Function triggered when a new Student Moderation Report is created.
+ * Sends FCM notification to the administrator.
+ */
+exports.onModerationReportCreated = functions.database
+  .ref("/moderationReports/{reportId}")
+  .onCreate(async (snapshot, context) => {
+    const report = snapshot.val();
+    if (!report) return null;
+
+    // Fetch admin tokens (assuming admin uid = user_admin_1 or query users with role ADMIN)
+    const adminUid = "user_admin_1";
+    const tokensSnap = await admin.database().ref(`/fcmTokens/${adminUid}`).once("value");
+    if (!tokensSnap.exists()) return null;
+
+    const tokens = [];
+    tokensSnap.forEach((child) => {
+      const token = child.child("token").val();
+      if (token) tokens.push(token);
+    });
+
+    if (tokens.length === 0) return null;
+
+    const message = {
+      notification: {
+        title: "New Moderation Report",
+        body: `Report [${report.reportReference || "REF"}] submitted for item '${report.itemName || report.targetTitleOrName}'.`,
+      },
+      data: {
+        reportId: context.params.reportId,
+        itemId: report.itemId || report.targetId || "",
+        type: "MODERATION_REPORT_SUBMITTED",
+      },
+      tokens: tokens,
+    };
+
+    try {
+      await admin.messaging().sendEachForMulticast(message);
+    } catch (error) {
+      console.error("Error sending moderation report FCM:", error);
+    }
+    return null;
+  });
+
+/**
+ * Cloud Function triggered when an Admin Audit action is created (e.g. Listing Removal).
+ * Sends FCM notification to item owner.
+ */
+exports.onModerationAuditCreated = functions.database
+  .ref("/moderationAudit/{auditId}")
+  .onCreate(async (snapshot, context) => {
+    const audit = snapshot.val();
+    if (!audit || audit.action !== "REMOVED" || !audit.itemId) return null;
+
+    // Fetch item owner
+    const itemSnap = await admin.database().ref(`/items/${audit.itemId}`).once("value");
+    if (!itemSnap.exists()) return null;
+
+    const ownerUid = itemSnap.child("userId").val() || itemSnap.child("ownerUid").val();
+    if (!ownerUid) return null;
+
+    const tokensSnap = await admin.database().ref(`/fcmTokens/${ownerUid}`).once("value");
+    if (!tokensSnap.exists()) return null;
+
+    const tokens = [];
+    tokensSnap.forEach((child) => {
+      const token = child.child("token").val();
+      if (token) tokens.push(token);
+    });
+
+    if (tokens.length === 0) return null;
+
+    const itemName = itemSnap.child("title").val() || "Listing";
+    const message = {
+      notification: {
+        title: "Your Listing Has Been Removed",
+        body: `Your ClaimIT listing '${itemName}' has been removed by an administrator. Reason: ${audit.reason || "Policy Violation"}.`,
+      },
+      data: {
+        itemId: audit.itemId,
+        type: "LISTING_REMOVED_BY_ADMIN",
+      },
+      tokens: tokens,
+    };
+
+    try {
+      await admin.messaging().sendEachForMulticast(message);
+    } catch (error) {
+      console.error("Error sending listing removal FCM:", error);
+    }
+    return null;
+  });

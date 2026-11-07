@@ -20,15 +20,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -44,33 +45,29 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.claimit.core.util.TimeUtils
 import com.example.claimit.domain.model.ItemCategory
 import com.example.claimit.domain.model.ItemPost
 import com.example.claimit.domain.model.ItemType
-import com.example.claimit.domain.model.ReportReason
 import com.example.claimit.domain.repository.ItemRepository
-import com.example.claimit.presentation.feed.components.ItemDetailSheet
 import com.example.claimit.ui.theme.StatusFoundEmerald
 import com.example.claimit.ui.theme.StatusFoundEmeraldBg
 import com.example.claimit.ui.theme.StatusLostCrimson
 import com.example.claimit.ui.theme.StatusLostCrimsonBg
+import com.example.claimit.ui.theme.TagAiIndigo
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CampusFeedScreen(
     itemRepository: ItemRepository,
-    onConnectContact: (String) -> Unit,
-    onSubmitClaim: (itemId: String, itemTitle: String, verificationAnswer: String, proofDetails: String) -> Unit,
-    onReportItem: (itemId: String, title: String, reason: ReportReason, details: String) -> Unit,
+    currentUserId: String,
+    onViewDetails: (ItemPost) -> Unit,
+    onDeleteReport: (String) -> Unit,
     modifier: Modifier = Modifier,
     organizationId: String = "lpu_main_campus"
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedTypeFilter by remember { mutableStateOf<ItemType?>(null) }
     var selectedCategoryFilter by remember { mutableStateOf<ItemCategory?>(null) }
-
-    var selectedItemForDetail by remember { mutableStateOf<ItemPost?>(null) }
 
     // Query reactive flow from repository
     val feedListings by itemRepository.getRecentItemPosts(
@@ -211,50 +208,68 @@ fun CampusFeedScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(feedListings) { post ->
-                    CampusItemFeedCard(
+                items(feedListings, key = { it.id }) { post ->
+                    MinimalCampusReportCard(
                         post = post,
-                        onConnectContact = onConnectContact,
-                        onCardClicked = { selectedItemForDetail = post }
+                        isOwner = post.userId == currentUserId,
+                        onViewDetails = { onViewDetails(post) },
+                        onDeleteReport = { onDeleteReport(post.id) }
                     )
                 }
             }
         }
     }
-
-    selectedItemForDetail?.let { post ->
-        ItemDetailSheet(
-            post = post,
-            onDismiss = { selectedItemForDetail = null },
-            onSubmitClaim = onSubmitClaim,
-            onReportItem = onReportItem,
-            onConnectContact = onConnectContact
-        )
-    }
 }
 
+/**
+ * Phase 1 — Minimal Clean Report Card for Dashboard
+ * Displays ONLY:
+ * 1. Item photograph / thumbnail
+ * 2. Item name/title
+ * 3. Item location
+ * Actions: View Details, Delete Report (ONLY for owner)
+ */
 @Composable
-private fun CampusItemFeedCard(
+private fun MinimalCampusReportCard(
     post: ItemPost,
-    onConnectContact: (String) -> Unit,
-    onCardClicked: () -> Unit
+    isOwner: Boolean,
+    onViewDetails: () -> Unit,
+    onDeleteReport: () -> Unit
 ) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(10.dp))
             .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-            .clickable { onCardClicked() }
-            .padding(14.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
+            .clickable { onViewDetails() }
+            .padding(12.dp)
     ) {
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 1. Item Photograph Thumbnail
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(TagAiIndigo.copy(alpha = 0.12f))
+                    .border(1.dp, TagAiIndigo.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
             ) {
-                // Type Badge
+                Icon(
+                    imageVector = Icons.Default.Image,
+                    contentDescription = null,
+                    tint = TagAiIndigo,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // 2. Item Name & 3. Location
+            Column(modifier = Modifier.weight(1f)) {
                 val isFound = post.type == ItemType.FOUND
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
@@ -262,13 +277,14 @@ private fun CampusItemFeedCard(
                             .clip(RoundedCornerShape(4.dp))
                             .background(if (isFound) StatusFoundEmeraldBg else StatusLostCrimsonBg)
                             .border(1.dp, if (isFound) StatusFoundEmerald else StatusLostCrimson, RoundedCornerShape(4.dp))
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
                             text = post.type.name,
                             style = MaterialTheme.typography.labelSmall,
                             color = if (isFound) StatusFoundEmerald else StatusLostCrimson,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp
                         )
                     }
 
@@ -282,51 +298,28 @@ private fun CampusItemFeedCard(
                     )
                 }
 
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Item Title
+                Text(
+                    text = post.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Item Location
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = post.trackingCode,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = post.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = post.description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
                     Icon(
                         imageVector = Icons.Default.LocationOn,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(13.dp)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(3.dp))
                     Text(
                         text = post.location.fullFormattedAddress,
                         style = MaterialTheme.typography.labelSmall,
@@ -336,59 +329,46 @@ private fun CampusItemFeedCard(
                     )
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                Text(
-                    text = TimeUtils.formatRelativeTime(post.createdAtTimestamp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 10.sp,
-                    maxLines = 1
-                )
-            }
+                // Actions
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = onViewDetails,
+                        colors = ButtonDefaults.buttonColors(containerColor = TagAiIndigo),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text(
+                            text = "VIEW DETAILS",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp
+                        )
+                    }
 
-            if (post.actionTakenRemarks.isNotBlank()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Info,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(12.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Remarks: ${post.actionTakenRemarks}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 10.sp
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Button(
-                onClick = { onConnectContact(post.finderOrOwnerContact) },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                ),
-                shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Call,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (post.type == ItemType.FOUND) "CONNECT WITH FINDER" else "CONNECT WITH OWNER",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold
-                    )
+                    // Delete Report action ONLY for report owner
+                    if (isOwner) {
+                        OutlinedButton(
+                            onClick = onDeleteReport,
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Delete, contentDescription = null, tint = StatusLostCrimson, modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "DELETE",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = StatusLostCrimson,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

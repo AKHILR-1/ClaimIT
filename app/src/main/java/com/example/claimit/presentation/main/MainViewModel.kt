@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.example.claimit.core.dispatchers.CoroutineDispatchers
 import com.example.claimit.domain.model.Claim
 import com.example.claimit.domain.model.ClaimStatus
+import com.example.claimit.domain.model.DeviceSession
+import com.example.claimit.domain.model.ItemPost
+import com.example.claimit.domain.model.ModerationAudit
 import com.example.claimit.domain.model.NotificationItem
 import com.example.claimit.domain.model.ReportReason
 import com.example.claimit.domain.model.ReportStatus
@@ -18,6 +21,7 @@ import com.example.claimit.domain.repository.ItemRepository
 import com.example.claimit.domain.repository.ModerationRepository
 import com.example.claimit.domain.repository.NotificationRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +48,14 @@ class MainViewModel(
     private val _isAuthLoading = MutableStateFlow(false)
     val isAuthLoading: StateFlow<Boolean> = _isAuthLoading.asStateFlow()
 
+    private val _currentSessionId = MutableStateFlow<String?>(null)
+    val currentSessionId: StateFlow<String?> = _currentSessionId.asStateFlow()
+
+    private val _isSessionRevoked = MutableStateFlow(false)
+    val isSessionRevoked: StateFlow<Boolean> = _isSessionRevoked.asStateFlow()
+
+    private var sessionObserverJob: Job? = null
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val userNotifications: StateFlow<List<NotificationItem>> = currentUserState.flatMapLatest { user ->
         val userId = user?.id ?: ""
@@ -69,8 +81,20 @@ class MainViewModel(
     val reportedQueue: StateFlow<List<ReportedContent>> = moderationRepository.getReportedContentQueue()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    val moderationAuditLogs: StateFlow<List<ModerationAudit>> = moderationRepository.getModerationAuditLogs()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    val registeredUsers: StateFlow<List<User>> = authRepository.getAllRegisteredUsers()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
     @OptIn(ExperimentalCoroutinesApi::class)
-    val savedPosts: StateFlow<List<com.example.claimit.domain.model.ItemPost>> = currentUserState.flatMapLatest { user ->
+    val activeDeviceSessions: StateFlow<List<DeviceSession>> = currentUserState.flatMapLatest { user ->
+        val userId = user?.id ?: ""
+        authRepository.getActiveDeviceSessions(userId)
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val savedPosts: StateFlow<List<ItemPost>> = currentUserState.flatMapLatest { user ->
         val userId = user?.id ?: ""
         itemRepository.getSavedPosts(userId)
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
@@ -80,6 +104,9 @@ class MainViewModel(
             _isAuthLoading.value = true
             _authError.value = null
             authRepository.login(email, pass)
+                .onSuccess { user ->
+                    registerDeviceSessionForUser(user)
+                }
                 .onFailure { _authError.value = it.localizedMessage }
             _isAuthLoading.value = false
         }
@@ -90,9 +117,46 @@ class MainViewModel(
             _isAuthLoading.value = true
             _authError.value = null
             authRepository.register(email, pass, name, collegeEmail, studentId, role)
+                .onSuccess { user ->
+                    registerDeviceSessionForUser(user)
+                }
                 .onFailure { _authError.value = it.localizedMessage }
             _isAuthLoading.value = false
         }
+    }
+
+    private fun registerDeviceSessionForUser(user: User) {
+        viewModelScope.launch(dispatchers.io) {
+            val deviceId = "dev_" + user.id.takeLast(6)
+            val deviceName = "Android Mobile"
+            val isAdmin = user.role == UserRole.ADMIN
+
+            val result = authRepository.registerSession(user.id, deviceId, deviceName, isAdmin)
+            result.onSuccess { sId ->
+                _currentSessionId.value = sId
+                _isSessionRevoked.value = false
+                startSessionRevocationObserver(user.id, sId)
+            }.onFailure { err ->
+                _authError.value = err.localizedMessage
+                logout()
+            }
+        }
+    }
+
+    private fun startSessionRevocationObserver(userId: String, sessionId: String) {
+        sessionObserverJob?.cancel()
+        sessionObserverJob = viewModelScope.launch(dispatchers.io) {
+            authRepository.observeSessionRevocation(userId, sessionId).collect { isRevoked ->
+                if (isRevoked) {
+                    _isSessionRevoked.value = true
+                    logout()
+                }
+            }
+        }
+    }
+
+    fun acknowledgeSessionRevoking() {
+        _isSessionRevoked.value = false
     }
 
     fun updateContactEmail(newContactEmail: String, currentPass: String, onResult: (Boolean, String?) -> Unit) {
@@ -154,6 +218,7 @@ class MainViewModel(
 
     fun logout() {
         viewModelScope.launch(dispatchers.io) {
+            sessionObserverJob?.cancel()
             authRepository.logout()
         }
     }
@@ -225,7 +290,7 @@ class MainViewModel(
         }
     }
 
-    fun editReport(post: com.example.claimit.domain.model.ItemPost) {
+    fun editReport(post: ItemPost) {
         viewModelScope.launch(dispatchers.io) {
             itemRepository.updateItemPost(post)
         }
@@ -243,10 +308,16 @@ class MainViewModel(
         }
     }
 
-    fun reportItem(itemId: String, title: String, reason: ReportReason, details: String) {
+    fun reportItemToAdmin(
+        itemId: String,
+        title: String,
+        reason: ReportReason,
+        details: String,
+        onResult: (Boolean, String?) -> Unit = { _, _ -> }
+    ) {
         viewModelScope.launch(dispatchers.io) {
             val user = currentUserState.value ?: return@launch
-            moderationRepository.reportContent(
+            val result = moderationRepository.reportContent(
                 reporterId = user.id,
                 reporterEmail = user.email,
                 targetType = TargetType.ITEM,
@@ -256,13 +327,58 @@ class MainViewModel(
                 details = details,
                 organizationId = user.organizationId
             )
+            result.onSuccess {
+                onResult(true, "Report sent to campus administration for review.")
+            }.onFailure {
+                onResult(false, it.localizedMessage ?: "Failed to submit report.")
+            }
         }
     }
 
-    fun resolveReport(reportId: String, status: ReportStatus) {
+    fun adminRemoveListing(
+        itemId: String,
+        reason: String,
+        explanation: String,
+        onResult: (Boolean, String?) -> Unit = { _, _ -> }
+    ) {
         viewModelScope.launch(dispatchers.io) {
-            val user = currentUserState.value ?: return@launch
-            moderationRepository.resolveReport(reportId, status, user.id)
+            val admin = currentUserState.value ?: return@launch
+            val result = moderationRepository.adminRemoveListing(itemId, admin.id, reason, explanation)
+            result.onSuccess {
+                onResult(true, "Listing removed globally.")
+            }.onFailure {
+                onResult(false, it.localizedMessage ?: "Failed to remove listing.")
+            }
+        }
+    }
+
+    fun adminResolveReportWithDecision(
+        reportId: String,
+        status: ReportStatus,
+        decision: String,
+        explanation: String
+    ) {
+        viewModelScope.launch(dispatchers.io) {
+            val admin = currentUserState.value ?: return@launch
+            moderationRepository.resolveReportWithDecision(reportId, status, admin.id, decision, explanation)
+        }
+    }
+
+    fun suspendUserAccount(userId: String) {
+        viewModelScope.launch(dispatchers.io) {
+            authRepository.suspendUserAccount(userId)
+        }
+    }
+
+    fun unsuspendUserAccount(userId: String) {
+        viewModelScope.launch(dispatchers.io) {
+            authRepository.unsuspendUserAccount(userId)
+        }
+    }
+
+    fun revokeDeviceSession(userId: String, sessionId: String) {
+        viewModelScope.launch(dispatchers.io) {
+            authRepository.revokeSession(userId, sessionId)
         }
     }
 }
