@@ -61,7 +61,10 @@
       "$orgId": {
         "items": {
           ".read": "auth != null",
-          ".write": "auth != null"
+          "$itemId": {
+            ".write": "auth != null",
+            ".validate": "newData.hasChild('imageUrls') || newData.hasChild('title')"
+          }
         }
       }
     }

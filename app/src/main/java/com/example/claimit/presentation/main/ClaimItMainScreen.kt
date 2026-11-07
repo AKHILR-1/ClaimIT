@@ -1,5 +1,8 @@
 package com.example.claimit.presentation.main
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -165,7 +168,7 @@ fun ClaimItMainScreen(
                             }
                         },
                         onConnectContact = { contact ->
-                            Toast.makeText(context, "Contacting: $contact", Toast.LENGTH_LONG).show()
+                            launchContactDialer(context, contact)
                         },
                         onWithdrawReport = { itemId ->
                             mainViewModel.withdrawReport(itemId)
@@ -392,5 +395,35 @@ private fun ClaimItBottomMenu(
                 )
             )
         }
+    }
+}
+
+private fun launchContactDialer(context: Context, contactInfo: String) {
+    val cleanInfo = contactInfo.trim()
+    if (cleanInfo.isBlank()) {
+        Toast.makeText(context, "Contact information is not available for this listing.", Toast.LENGTH_LONG).show()
+        return
+    }
+
+    if (cleanInfo.contains("@")) {
+        try {
+            val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$cleanInfo"))
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(context, "Contact email: $cleanInfo", Toast.LENGTH_LONG).show()
+        }
+        return
+    }
+
+    val digits = cleanInfo.filter { it.isDigit() || it == '+' }
+    if (digits.length >= 7) {
+        try {
+            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$digits"))
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(context, "No dialer application found on this device.", Toast.LENGTH_SHORT).show()
+        }
+    } else {
+        Toast.makeText(context, "Contact information is not available for this listing.", Toast.LENGTH_LONG).show()
     }
 }

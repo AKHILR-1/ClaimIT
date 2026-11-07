@@ -80,21 +80,12 @@ fun ClaimItHeader(
 
                     Spacer(modifier = Modifier.width(10.dp))
 
-                    Column {
-                        Text(
-                            text = "ClaimIT",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Bold
-                        )
-
-                        Text(
-                            text = "With AI Item Recognition & Cross-Match",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
-                        )
-                    }
+                    Text(
+                        text = "ClaimIT",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
 
                 Spacer(modifier = Modifier.width(8.dp))

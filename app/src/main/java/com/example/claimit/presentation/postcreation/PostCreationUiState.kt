@@ -66,5 +66,6 @@ data class PostCreationUiState(
                 selectedBuilding != null &&
                 (selectedBuilding.id != "bld_others" || customBuildingName.trim().isNotBlank()) &&
                 contactInfo.trim().isNotBlank() &&
+                capturedBitmaps.isNotEmpty() &&
                 !isSubmitting
 }

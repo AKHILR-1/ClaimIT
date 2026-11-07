@@ -1,5 +1,6 @@
 package com.example.claimit.presentation.feed
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,14 +26,16 @@ import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -42,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,9 +69,12 @@ fun CampusFeedScreen(
     modifier: Modifier = Modifier,
     organizationId: String = "lpu_main_campus"
 ) {
+    val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
     var selectedTypeFilter by remember { mutableStateOf<ItemType?>(null) }
     var selectedCategoryFilter by remember { mutableStateOf<ItemCategory?>(null) }
+
+    var deletingPostId by remember { mutableStateOf<String?>(null) }
 
     // Query reactive flow from repository
     val feedListings by itemRepository.getRecentItemPosts(
@@ -213,11 +220,49 @@ fun CampusFeedScreen(
                         post = post,
                         isOwner = post.userId == currentUserId,
                         onViewDetails = { onViewDetails(post) },
-                        onDeleteReport = { onDeleteReport(post.id) }
+                        onDeleteClick = { deletingPostId = post.id }
                     )
                 }
             }
         }
+    }
+
+    // Delete Confirmation Dialog
+    deletingPostId?.let { postId ->
+        AlertDialog(
+            onDismissRequest = { deletingPostId = null },
+            title = {
+                Text(
+                    text = "Delete Report?",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to delete this report? This action will remove the listing from the active ClaimIT feed.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteReport(postId)
+                        deletingPostId = null
+                        Toast.makeText(context, "Report removed from campus feed.", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = StatusLostCrimson)
+                ) {
+                    Text("DELETE REPORT", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingPostId = null }) {
+                    Text("CANCEL", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        )
     }
 }
 
@@ -227,14 +272,14 @@ fun CampusFeedScreen(
  * 1. Item photograph / thumbnail
  * 2. Item name/title
  * 3. Item location
- * Actions: View Details, Delete Report (ONLY for owner)
+ * Actions: View Details, Delete Icon Button (ONLY for owner)
  */
 @Composable
 private fun MinimalCampusReportCard(
     post: ItemPost,
     isOwner: Boolean,
     onViewDetails: () -> Unit,
-    onDeleteReport: () -> Unit
+    onDeleteClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -350,21 +395,26 @@ private fun MinimalCampusReportCard(
                         )
                     }
 
-                    // Delete Report action ONLY for report owner
+                    // Redesigned Delete Icon Button ONLY for report owner
                     if (isOwner) {
-                        OutlinedButton(
-                            onClick = onDeleteReport,
-                            shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier.height(32.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(StatusLostCrimson.copy(alpha = 0.15f))
+                                .border(1.dp, StatusLostCrimson, RoundedCornerShape(6.dp))
+                                .clickable { onDeleteClick() },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Delete, contentDescription = null, tint = StatusLostCrimson, modifier = Modifier.size(12.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "DELETE",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = StatusLostCrimson,
-                                    fontSize = 10.sp
+                            IconButton(
+                                onClick = onDeleteClick,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete report",
+                                    tint = StatusLostCrimson,
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }

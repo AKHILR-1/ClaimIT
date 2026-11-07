@@ -101,7 +101,7 @@ fun MediaDrawerComponent(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "VISUAL IDENTIFICATION & PROXIMITY SCAN",
+                    text = "ITEM PHOTOGRAPH * (REQUIRED)",
                     style = MaterialTheme.typography.labelSmall,
                     color = TagAiIndigo,
                     fontWeight = FontWeight.Bold
@@ -124,6 +124,13 @@ fun MediaDrawerComponent(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Upload at least one clear photograph of the item to publish your report.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
         Spacer(modifier = Modifier.height(10.dp))
 

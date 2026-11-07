@@ -301,9 +301,16 @@ class PostCreationViewModel(
         val currentState = _uiState.value
         val location = currentState.selectedLocation
 
+        if (currentState.capturedBitmaps.isEmpty()) {
+            _uiState.update { state ->
+                state.copy(errorMessage = "Photo Required: Please upload at least one photograph of the item before publishing your report.")
+            }
+            return
+        }
+
         if (!currentState.isFormValid || location == null) {
             _uiState.update { state ->
-                state.copy(errorMessage = "Please fill in all required fields (title, location building, and contact info).")
+                state.copy(errorMessage = "Please fill in all required fields (title, location building, photo, and contact info).")
             }
             return
         }
