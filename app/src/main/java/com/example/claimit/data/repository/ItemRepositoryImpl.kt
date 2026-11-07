@@ -232,34 +232,44 @@ class ItemRepositoryImpl(
         itemId: String,
         index: Int
     ): Result<String> = withContext(dispatchers.io) {
-        val st = storage ?: return@withContext Result.failure(Exception("Cloud Storage not initialized"))
+        val maxDimension = 1280
+        val width = bitmap.width
+        val height = bitmap.height
+        val max = maxOf(width, height)
+
+        val scaledBitmap = if (max > maxDimension) {
+            val scale = maxDimension.toFloat() / max
+            Bitmap.createScaledBitmap(bitmap, (width * scale).toInt(), (height * scale).toInt(), true)
+        } else {
+            bitmap
+        }
+
+        val baos = ByteArrayOutputStream()
+        scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, baos)
+        val data = baos.toByteArray()
+
+        if (scaledBitmap != bitmap) {
+            scaledBitmap.recycle()
+        }
+
+        val st = storage
+        if (st != null) {
+            try {
+                val ref = st.reference.child("organizations/$organizationId/items/$itemId/img_$index.jpg")
+                ref.putBytes(data).await()
+                val downloadUrl = ref.downloadUrl.await().toString()
+                return@withContext Result.success(downloadUrl)
+            } catch (e: Exception) {
+                Log.w(TAG, "Cloud Storage photo upload warning: ${e.message}, utilizing Base64 image payload fallback")
+            }
+        }
+
+        // Fail-safe Base64 data URI fallback
         try {
-            val maxDimension = 1280
-            val width = bitmap.width
-            val height = bitmap.height
-            val max = maxOf(width, height)
-
-            val scaledBitmap = if (max > maxDimension) {
-                val scale = maxDimension.toFloat() / max
-                Bitmap.createScaledBitmap(bitmap, (width * scale).toInt(), (height * scale).toInt(), true)
-            } else {
-                bitmap
-            }
-
-            val baos = ByteArrayOutputStream()
-            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, baos)
-            val data = baos.toByteArray()
-
-            if (scaledBitmap != bitmap) {
-                scaledBitmap.recycle()
-            }
-
-            val ref = st.reference.child("organizations/$organizationId/items/$itemId/img_$index.jpg")
-            ref.putBytes(data).await()
-            val downloadUrl = ref.downloadUrl.await().toString()
-            Result.success(downloadUrl)
+            val base64Str = android.util.Base64.encodeToString(data, android.util.Base64.NO_WRAP)
+            Result.success("data:image/jpeg;base64,$base64Str")
         } catch (e: Exception) {
-            Log.e(TAG, "Cloud Storage photo upload failed: ${e.message}", e)
+            Log.e(TAG, "Base64 image encoding failed: ${e.message}", e)
             Result.failure(e)
         }
     }

@@ -118,30 +118,13 @@ fun ItemDetailsScreen(
 
         // SECTION A — ITEM PHOTOGRAPH
         item {
-            Box(
+            com.example.claimit.presentation.feed.components.ReportImageThumbnail(
+                imageUrl = post.imageUrls.firstOrNull(),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(200.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(TagAiIndigo.copy(alpha = 0.1f))
-                    .border(1.dp, TagAiIndigo.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.Image,
-                        contentDescription = null,
-                        tint = TagAiIndigo,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = if (post.imageUrls.isNotEmpty()) "Image attached" else "No photograph uploaded",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TagAiIndigo
-                    )
-                }
-            }
+            )
         }
 
         // SECTION B — ITEM INFORMATION

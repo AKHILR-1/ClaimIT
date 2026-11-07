@@ -295,21 +295,12 @@ private fun MinimalCampusReportCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 1. Item Photograph Thumbnail
-            Box(
+            com.example.claimit.presentation.feed.components.ReportImageThumbnail(
+                imageUrl = post.imageUrls.firstOrNull(),
                 modifier = Modifier
                     .size(72.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(TagAiIndigo.copy(alpha = 0.12f))
-                    .border(1.dp, TagAiIndigo.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Image,
-                    contentDescription = null,
-                    tint = TagAiIndigo,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
+            )
 
             Spacer(modifier = Modifier.width(12.dp))
 

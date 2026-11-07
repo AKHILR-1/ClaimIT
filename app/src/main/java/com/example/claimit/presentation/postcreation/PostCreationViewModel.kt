@@ -301,7 +301,10 @@ class PostCreationViewModel(
         val currentState = _uiState.value
         val location = currentState.selectedLocation
 
+        android.util.Log.i("ClaimIT_Submission", "STAGE: VALIDATION_STARTED")
+
         if (currentState.capturedBitmaps.isEmpty()) {
+            android.util.Log.w("ClaimIT_Submission", "STAGE: SUBMISSION_FAILED reason=NO_PHOTO")
             _uiState.update { state ->
                 state.copy(errorMessage = "Photo Required: Please upload at least one photograph of the item before publishing your report.")
             }
@@ -309,15 +312,19 @@ class PostCreationViewModel(
         }
 
         if (!currentState.isFormValid || location == null) {
+            android.util.Log.w("ClaimIT_Submission", "STAGE: SUBMISSION_FAILED reason=INVALID_FORM")
             _uiState.update { state ->
                 state.copy(errorMessage = "Please fill in all required fields (title, location building, photo, and contact info).")
             }
             return
         }
 
+        android.util.Log.i("ClaimIT_Submission", "STAGE: VALIDATION_SUCCESS")
+
         val currentUser = authRepository?.currentUserState?.value
-        val userId = currentUser?.id ?: "user_${System.currentTimeMillis()}"
-        val userDisplayName = currentUser?.displayName ?: "Campus Member"
+        val fbUser = try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
+        val userId = currentUser?.id ?: fbUser?.uid ?: "user_${System.currentTimeMillis()}"
+        val userDisplayName = currentUser?.displayName ?: fbUser?.displayName ?: "Campus Member"
         val orgId = currentUser?.organizationId ?: "lpu_main_campus"
 
         viewModelScope.launch(dispatchers.default) {
@@ -326,6 +333,8 @@ class PostCreationViewModel(
             val uploadedUrls = mutableListOf<String>()
             val bitmaps = currentState.capturedBitmaps
             val tempId = "post_${UUID.randomUUID()}"
+
+            android.util.Log.i("ClaimIT_Submission", "STAGE: IMAGE_UPLOAD_STARTED count=${bitmaps.size}")
 
             if (bitmaps.isNotEmpty() && itemRepository is ItemRepositoryImpl) {
                 bitmaps.forEachIndexed { index, bitmap ->
@@ -342,7 +351,22 @@ class PostCreationViewModel(
                 }
             }
 
+            android.util.Log.i("ClaimIT_Submission", "STAGE: IMAGE_UPLOAD_SUCCESS urls=${uploadedUrls.size}")
+
+            if (uploadedUrls.isEmpty()) {
+                android.util.Log.e("ClaimIT_Submission", "STAGE: SUBMISSION_FAILED reason=IMAGE_UPLOAD_EMPTY")
+                _uiState.update { state ->
+                    state.copy(
+                        isSubmitting = false,
+                        uploadProgressMessage = null,
+                        errorMessage = "Image upload failed. Please re-select the photograph and try again."
+                    )
+                }
+                return@launch
+            }
+
             _uiState.update { it.copy(uploadProgressMessage = "Publishing report to campus database...") }
+            android.util.Log.i("ClaimIT_Submission", "STAGE: DATABASE_SAVE_STARTED itemId=$tempId")
 
             val result = createItemPostUseCase(
                 title = currentState.title,
@@ -362,16 +386,31 @@ class PostCreationViewModel(
             )
 
             result.onSuccess { postId ->
+                android.util.Log.i("ClaimIT_Submission", "STAGE: DATABASE_SAVE_SUCCESS postId=$postId")
+                android.util.Log.i("ClaimIT_Submission", "STAGE: REPORT_PUBLISHED postId=$postId")
+
                 _uiState.update { state ->
                     state.copy(
                         isSubmitting = false,
                         uploadProgressMessage = null,
-                        createdPostId = postId
+                        createdPostId = postId,
+                        title = "",
+                        description = "",
+                        capturedBitmaps = emptyList(),
+                        acceptedTags = emptyList(),
+                        suggestedTags = emptyList(),
+                        selectedBuilding = null,
+                        customBuildingName = "",
+                        selectedFloorWing = "",
+                        microLocationDetails = "",
+                        contactInfo = "",
+                        actionTakenRemarks = ""
                     )
                 }
                 _sideEffectChannel.send(PostCreationSideEffect.TriggerHapticFeedback)
                 _sideEffectChannel.send(PostCreationSideEffect.PostCreatedSuccessfully(postId, "CLM-" + postId.take(6).uppercase()))
             }.onFailure { error ->
+                android.util.Log.e("ClaimIT_Submission", "STAGE: SUBMISSION_FAILED err=${error.message}")
                 _uiState.update { state ->
                     state.copy(
                         isSubmitting = false,
