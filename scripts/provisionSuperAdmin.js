@@ -6,17 +6,17 @@
  * Target Super Admin Email: battleinsane510@gmail.com
  * Executed locally via Node.js using Firebase Admin SDK.
  * 
- * Security & Reliability Rules:
- * 1. Require verified Firebase Auth email before granting Super Admin role.
- * 2. Merge existing custom claims (never overwrite).
- * 3. Preserve existing user profile fields (read before write).
- * 4. Generate password-reset link securely; never print sensitive links/tokens to logs.
- * 5. Safe rollback with lock ownership verification.
- * 6. Concurrency-safe atomic transaction with abandoned attempt cleanup (>15 mins).
- * 7. Read-only --dry-run mode performs ZERO database/Auth writes.
- * 8. Explicit confirmation required for live execution.
+ * Reliability & Security Rules:
+ * 1. Requires verified Firebase Auth email before granting SUPER_ADMIN role.
+ * 2. Merges existing custom claims (never overwrites).
+ * 3. Preserves existing user profile fields (reads before writing).
+ * 4. Displays generated password reset link clearly for manual setup (never prints service account keys/passwords).
+ * 5. Full compensating rollback for partial failures (removes newly created Auth/RTDB resources and restores original state).
+ * 6. Concurrency-safe atomic transaction with lock ownership validation (`currentRunId`).
+ * 7. `--dry-run` mode is strictly read-only with ZERO database/Auth mutations.
+ * 8. Explicit `--confirm` flag AND interactive confirmation required for live execution.
  * 9. Strict service account project ID verification.
- * 10. Complete configuration validation prior to execution.
+ * 10. Pre-execution revalidation of lock and Auth account.
  */
 
 const admin = require("firebase-admin");
@@ -103,7 +103,7 @@ async function Main() {
     const db = admin.database();
     const superAdminLockRef = db.ref("adminConfiguration/superAdmin");
 
-    // 4. Inspect Existing Provisioning Lock & Abandoned Attempt Handling
+    // 4. Pre-Validation: Inspect Existing Provisioning Lock & Abandoned Attempt Handling
     console.log(`\n[INSPECTION] Checking database node 'adminConfiguration/superAdmin'...`);
     const existingLockSnap = await superAdminLockRef.once("value");
     const existingData = existingLockSnap.exists() ? existingLockSnap.val() : null;
@@ -149,7 +149,7 @@ async function Main() {
     if (userRecord && !userRecord.emailVerified) {
       console.warn(`\n[REQUIREMENT UNMET] Account '${SUPER_ADMIN_EMAIL}' exists but email is NOT yet verified.`);
       console.warn("Super Admin privileges cannot be granted to an unverified email address.");
-      console.warn("Please verify your email via the link sent to your inbox, then re-run this script.\n");
+      console.warn("Please verify your email address, then re-run this script.\n");
       if (isDryRun) {
         console.log("[DRY-RUN SUMMARY] Dry-run complete. Super Admin role assignment pending email verification.");
         process.exit(0);
@@ -157,7 +157,7 @@ async function Main() {
     }
 
     // =========================================================================
-    // DRY-RUN MODE EXIT POINT (ZERO WRITES TO AUTH OR DATABASE)
+    // DRY-RUN MODE EXIT POINT (STRICTLY ZERO WRITES TO AUTH OR DATABASE)
     // =========================================================================
     if (isDryRun) {
       console.log("\n=================================================");
@@ -169,8 +169,8 @@ async function Main() {
       console.log(`- Target Realtime Database: ${DATABASE_URL}`);
       console.log(`- Target Super Admin Email: ${SUPER_ADMIN_EMAIL}`);
       console.log(`- Target Organization: ${ORG_NAME} (ID: ${ORG_ID})`);
-      console.log(`- Existing Super Admin Lock: ${existingData?.uid ? "PROVISIONED" : "CLEAR"}`);
-      console.log(`- Planned Auth Action: ${userRecord ? (userRecord.emailVerified ? "Grant SUPER_ADMIN role & Custom Claims" : "Wait for email verification") : "Create Auth account and send verification/setup email"}`);
+      console.log(`- Super Admin Lock Status: ${existingData?.uid ? "PROVISIONED" : "CLEAR"}`);
+      console.log(`- Planned Auth Action: ${userRecord ? (userRecord.emailVerified ? "Grant SUPER_ADMIN role & merge Custom Claims" : "Wait for email verification") : "Create Auth account & generate password setup link"}`);
       console.log("\nTo execute LIVE provisioning when ready, run:");
       console.log("  node provisionSuperAdmin.js --confirm\n");
       process.exit(0);
@@ -180,42 +180,64 @@ async function Main() {
     // LIVE PROVISIONING CONFIRMATION CHECK
     // =========================================================================
     if (!hasConfirmFlag) {
-      const answer = await askConfirmation("\n[CONFIRMATION REQUIRED] Type 'PROVISION' to execute live Super Admin setup: ");
-      if (answer !== "PROVISION") {
-        console.log("\n[ABORTED] Live provisioning cancelled by user. No changes were made.\n");
-        process.exit(0);
-      }
-    }
-
-    // =========================================================================
-    // LIVE PROVISIONING EXECUTION WITH ATOMIC TRANSACTION & ROLLBACK SAFETY
-    // =========================================================================
-
-    console.log("\n[EXECUTION] Acquiring atomic database lock...");
-    const transactionResult = await superAdminLockRef.transaction((currentData) => {
-      if (currentData !== null && currentData.uid) {
-        return; // Abort if another process completed provisioning concurrently
-      }
-      return {
-        email: SUPER_ADMIN_EMAIL,
-        organizationId: ORG_ID,
-        organizationName: ORG_NAME,
-        lockId: currentRunId,
-        initiatedAt: Date.now()
-      };
-    });
-
-    if (!transactionResult.committed) {
-      console.error("\n[BLOCKED] Atomic transaction failed: Super Admin lock was acquired by another process.");
+      console.error("\n[BLOCKED] Live provisioning requires the '--confirm' flag.");
+      console.error("Run command: node provisionSuperAdmin.js --confirm\n");
       process.exit(1);
     }
-    console.log(`[SUCCESS] Atomic transaction lock acquired (Lock Run ID: ${currentRunId}).`);
 
-    let uid;
-    let isNewAccount = false;
+    const promptAnswer = await askConfirmation("\n[CONFIRMATION REQUIRED] Type 'PROVISION' to execute live Super Admin setup: ");
+    if (promptAnswer !== "PROVISION") {
+      console.log("\n[ABORTED] Live provisioning cancelled by user. No changes were made.\n");
+      process.exit(0);
+    }
+
+    // =========================================================================
+    // REVALIDATE LOCK & AUTH ACCOUNT IMMEDIATELY BEFORE LIVE WRITES
+    // =========================================================================
+    console.log("\n[REVALIDATION] Rechecking database lock and Auth account immediately before live execution...");
+    const revalLockSnap = await superAdminLockRef.once("value");
+    if (revalLockSnap.exists() && revalLockSnap.val()?.uid) {
+      console.error("\n[BLOCKED] Revalidation failed: Super Admin was provisioned by another process.");
+      process.exit(1);
+    }
+
+    // =========================================================================
+    // LIVE PROVISIONING EXECUTION WITH COMPENSATING ROLLBACK SAFETY
+    // =========================================================================
+
+    // State trackers for compensating rollback
+    let didAcquireLock = false;
+    let didCreateAuthUser = false;
+    let didMergeCustomClaims = false;
+    let originalCustomClaims = userRecord?.customClaims || null;
+    let didCreateRtdbProfile = false;
+    let originalRtdbProfile = null;
+    let uid = userRecord?.uid || null;
 
     try {
-      // Step A: Create or Retrieve Auth User
+      // Step 1: Acquire Atomic Lock
+      console.log("[EXECUTION] Acquiring atomic database lock...");
+      const transactionResult = await superAdminLockRef.transaction((currentData) => {
+        if (currentData !== null && currentData.uid) {
+          return; // Abort if another process completed provisioning concurrently
+        }
+        return {
+          email: SUPER_ADMIN_EMAIL,
+          organizationId: ORG_ID,
+          organizationName: ORG_NAME,
+          lockId: currentRunId,
+          initiatedAt: Date.now()
+        };
+      });
+
+      if (!transactionResult.committed) {
+        console.error("\n[BLOCKED] Atomic transaction failed: Super Admin lock was acquired by another process.");
+        process.exit(1);
+      }
+      didAcquireLock = true;
+      console.log(`[SUCCESS] Atomic transaction lock acquired (Lock Run ID: ${currentRunId}).`);
+
+      // Step 2: Create or Retrieve Auth User
       if (userRecord) {
         uid = userRecord.uid;
         console.log(`[EXECUTION] Using existing Auth account (UID: ${uid}).`);
@@ -229,7 +251,7 @@ async function Main() {
         });
         uid = newRecord.uid;
         userRecord = newRecord;
-        isNewAccount = true;
+        didCreateAuthUser = true;
         console.log(`[SUCCESS] Created new Auth user account (UID: ${uid}).`);
       }
 
@@ -237,10 +259,10 @@ async function Main() {
       if (!userRecord.emailVerified) {
         console.warn(`\n[NOTICE] Auth account created/found for '${SUPER_ADMIN_EMAIL}', but email is NOT verified.`);
         console.warn("Super Admin custom claims will NOT be granted until email is verified.");
-        console.warn("A password reset / setup email link is being dispatched securely.\n");
+        console.warn("A password reset / setup link is being generated securely.\n");
       }
 
-      // Step B: Merge Custom Claims (Never Overwrite Existing Claims)
+      // Step 3: Merge Custom Claims (Never Overwrite Existing Claims)
       if (userRecord.emailVerified) {
         const existingClaims = userRecord.customClaims || {};
         const mergedClaims = {
@@ -250,15 +272,19 @@ async function Main() {
         };
         console.log(`[EXECUTION] Merging Custom Claims:`, mergedClaims);
         await admin.auth().setCustomUserClaims(uid, mergedClaims);
+        didMergeCustomClaims = true;
         console.log(`[SUCCESS] Custom Claims merged successfully on Auth token.`);
       }
 
-      // Step C: Preserve Existing Profile Fields (Read before Write)
+      // Step 4: Preserve Existing Profile Fields (Read before Write)
       console.log(`[EXECUTION] Reading existing profile at users/${uid}...`);
       const userProfileRef = db.ref(`users/${uid}`);
       const existingProfileSnap = await userProfileRef.once("value");
-      const existingProfile = existingProfileSnap.exists() ? existingProfileSnap.val() : {};
+      if (existingProfileSnap.exists()) {
+        originalRtdbProfile = existingProfileSnap.val();
+      }
 
+      const existingProfile = originalRtdbProfile || {};
       const updatedProfile = {
         ...existingProfile,
         fullName: existingProfile.fullName || SUPER_ADMIN_NAME,
@@ -280,9 +306,10 @@ async function Main() {
       };
 
       await userProfileRef.set(updatedProfile);
+      didCreateRtdbProfile = true;
       console.log(`[SUCCESS] Profile updated at users/${uid} (Preserved ${Object.keys(existingProfile).length} existing fields).`);
 
-      // Step D: Finalize Atomic Lock in adminConfiguration/superAdmin (Only if email is verified)
+      // Step 5: Finalize Atomic Lock in adminConfiguration/superAdmin (Only if email is verified)
       if (userRecord.emailVerified) {
         console.log(`[EXECUTION] Finalizing lock at adminConfiguration/superAdmin...`);
         const lockConfig = {
@@ -296,11 +323,8 @@ async function Main() {
         console.log(`[SUCCESS] Super Admin configuration locked.`);
       }
 
-      // Step E: Generate Password Reset Link Securely (Never printed to shared logs)
+      // Step 6: Generate Firebase Password Reset Link
       const resetLink = await admin.auth().generatePasswordResetLink(SUPER_ADMIN_EMAIL);
-      const instructionsPath = path.join(__dirname, ".superadmin_setup_instructions.txt");
-      fs.writeFileSync(instructionsPath, `CLAIMIT SUPER ADMIN SETUP INSTRUCTIONS\n\nAccount: ${SUPER_ADMIN_EMAIL}\nUID: ${uid}\nPassword Reset Link: ${resetLink}\nTimestamp: ${new Date().toISOString()}\n\nDelete this file after completing login setup.`, { mode: 0o600 });
-      console.log(`[SUCCESS] Secure password setup instructions written to local file (git-ignored): ${instructionsPath}`);
 
       console.log("\n=================================================");
       console.log("  SUPER ADMIN PROVISIONING COMPLETED SUCCESSFULLY!");
@@ -309,27 +333,53 @@ async function Main() {
       console.log(`- Super Admin Email: ${SUPER_ADMIN_EMAIL}`);
       console.log(`- Organization: ${ORG_NAME} (ID: ${ORG_ID})`);
       console.log(`- Firebase Auth UID: ${uid}`);
-      console.log(`- Email Verification Status: ${userRecord.emailVerified ? "VERIFIED" : "PENDING VERIFICATION"}`);
+      console.log(`- Account Type: ${didCreateAuthUser ? "New Auth Account Created" : "Existing Auth Account Upgraded"}`);
+      console.log(`- Email Verification: ${userRecord.emailVerified ? "VERIFIED" : "PENDING VERIFICATION"}`);
       console.log(`- Role Assigned: ${userRecord.emailVerified ? "SUPER_ADMIN" : "PENDING EMAIL VERIFICATION"}`);
-      console.log(`- Setup Instructions: Saved securely to .superadmin_setup_instructions.txt`);
-      console.log("=================================================\n");
+      console.log("\n[MANUAL ACCOUNT SETUP LINK]");
+      console.log(`Generated Firebase Password Reset Link for manual setup:`);
+      console.log(`  ${resetLink}`);
+      console.log("\n(Use the link above to set your password and complete sign-in on ClaimIT).\n");
 
       process.exit(0);
 
     } catch (stepErr) {
-      console.error("\n[RECOVERY] Execution failed during step process. Checking lock ownership...");
-      // Safe Rollback: Verify lock ownership before removing
+      console.error("\n[COMPENSATING ROLLBACK] Provisioning failed during execution. Reverting changes created by this run...");
+
       try {
-        const currentLockSnap = await superAdminLockRef.once("value");
-        if (currentLockSnap.exists() && currentLockSnap.val()?.lockId === currentRunId) {
-          await superAdminLockRef.remove();
-          console.log("[RECOVERY] Lock node owned by this execution run was safely removed.");
-        } else {
-          console.warn("[RECOVERY] Lock node is not owned by this execution run. Lock preserved.");
+        if (didCreateRtdbProfile && uid) {
+          if (originalRtdbProfile) {
+            await db.ref(`users/${uid}`).set(originalRtdbProfile);
+            console.log("[ROLLBACK] Restored original RTDB profile.");
+          } else {
+            await db.ref(`users/${uid}`).remove();
+            console.log("[ROLLBACK] Removed newly created RTDB profile.");
+          }
         }
-      } catch (cleanErr) {
-        console.error("[RECOVERY ERROR] Failed to inspect or remove lock node:", cleanErr.message);
+
+        if (didMergeCustomClaims && uid && !didCreateAuthUser) {
+          await admin.auth().setCustomUserClaims(uid, originalCustomClaims || {});
+          console.log("[ROLLBACK] Restored original custom claims.");
+        }
+
+        if (didCreateAuthUser && uid) {
+          await admin.auth().deleteUser(uid);
+          console.log("[ROLLBACK] Deleted newly created Auth user account.");
+        }
+
+        if (didAcquireLock) {
+          const lockSnap = await superAdminLockRef.once("value");
+          if (lockSnap.exists() && lockSnap.val()?.lockId === currentRunId) {
+            await superAdminLockRef.remove();
+            console.log("[ROLLBACK] Removed atomic lock owned by current run.");
+          } else {
+            console.warn("[ROLLBACK] Lock node is not owned by this run. Lock preserved.");
+          }
+        }
+      } catch (rollbackErr) {
+        console.error("[ROLLBACK ERROR] Failed during rollback execution:", rollbackErr.message);
       }
+
       throw stepErr;
     }
 
