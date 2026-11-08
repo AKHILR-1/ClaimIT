@@ -13,3 +13,6 @@
 .externalNativeBuild
 .cxx
 local.properties
+scripts/serviceAccountKey.json
+scripts/node_modules/
+scripts/.superadmin_setup_instructions.txt

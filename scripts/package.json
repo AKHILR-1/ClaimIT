@@ -1,0 +1,12 @@
+﻿{
+  "name": "claimit-admin-provisioning",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "provision": "node provisionSuperAdmin.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}
