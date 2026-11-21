@@ -21,12 +21,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.example.claimit.ui.theme.TagAiIndigo
 
+import coil.compose.AsyncImage
+
 @Composable
 fun ReportImageThumbnail(
     imageUrl: String?,
     modifier: Modifier = Modifier
 ) {
-    val bitmap = remember(imageUrl) {
+    val base64Bitmap = remember(imageUrl) {
         if (!imageUrl.isNullOrBlank() && imageUrl.startsWith("data:image")) {
             try {
                 val base64Data = imageUrl.substringAfter("base64,")
@@ -38,9 +40,16 @@ fun ReportImageThumbnail(
         } else null
     }
 
-    if (bitmap != null) {
+    if (base64Bitmap != null) {
         Image(
-            bitmap = bitmap.asImageBitmap(),
+            bitmap = base64Bitmap.asImageBitmap(),
+            contentDescription = "Item Photo",
+            contentScale = ContentScale.Crop,
+            modifier = modifier
+        )
+    } else if (!imageUrl.isNullOrBlank()) {
+        AsyncImage(
+            model = imageUrl,
             contentDescription = "Item Photo",
             contentScale = ContentScale.Crop,
             modifier = modifier

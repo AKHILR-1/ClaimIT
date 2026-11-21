@@ -331,41 +331,45 @@ class PostCreationViewModel(
             _uiState.update { it.copy(isSubmitting = true, uploadProgressMessage = "Preparing report...") }
 
             val uploadedUrls = mutableListOf<String>()
-            val bitmaps = currentState.capturedBitmaps
-            val tempId = "post_${UUID.randomUUID()}"
+            val uploadedPublicIds = mutableListOf<String>()
+            val bitmaps = currentState.capturedBitmaps.take(3)
+            var uploadFailed = false
+            var uploadFailureReason = ""
 
             android.util.Log.i("ClaimIT_Submission", "STAGE: IMAGE_UPLOAD_STARTED count=${bitmaps.size}")
 
             if (bitmaps.isNotEmpty() && itemRepository is ItemRepositoryImpl) {
-                bitmaps.forEachIndexed { index, bitmap ->
-                    _uiState.update { it.copy(uploadProgressMessage = "Uploading photo ${index + 1} of ${bitmaps.size}...") }
-                    val uploadResult = itemRepository.uploadBitmapToStorage(
-                        bitmap = bitmap,
-                        organizationId = orgId,
-                        itemId = tempId,
-                        index = index
-                    )
-                    uploadResult.onSuccess { url ->
-                        uploadedUrls.add(url)
+                for ((index, bitmap) in bitmaps.withIndex()) {
+                    _uiState.update { it.copy(uploadProgressMessage = "Uploading photo ${index + 1} of ${bitmaps.size} to Cloudinary...") }
+                    val uploadResult = itemRepository.uploadBitmapToCloudinary(bitmap)
+                    uploadResult.onSuccess { res ->
+                        uploadedUrls.add(res.secureUrl)
+                        uploadedPublicIds.add(res.publicId)
+                    }.onFailure { err ->
+                        uploadFailed = true
+                        uploadFailureReason = err.localizedMessage ?: "Cloudinary image upload failed"
+                        android.util.Log.e("ClaimIT_Submission", "Cloudinary photo ${index + 1} upload failed: ${err.message}")
                     }
+                    if (uploadFailed) break
                 }
             }
 
-            android.util.Log.i("ClaimIT_Submission", "STAGE: IMAGE_UPLOAD_SUCCESS urls=${uploadedUrls.size}")
-
-            if (uploadedUrls.isEmpty()) {
-                android.util.Log.e("ClaimIT_Submission", "STAGE: SUBMISSION_FAILED reason=IMAGE_UPLOAD_EMPTY")
+            if (uploadFailed || uploadedUrls.isEmpty()) {
+                android.util.Log.e("ClaimIT_Submission", "STAGE: SUBMISSION_FAILED reason=CLOUDINARY_UPLOAD_FAILED err=$uploadFailureReason")
                 _uiState.update { state ->
                     state.copy(
                         isSubmitting = false,
                         uploadProgressMessage = null,
-                        errorMessage = "Image upload failed. Please re-select the photograph and try again."
+                        errorMessage = if (uploadFailureReason.isNotBlank()) "Photo Upload Failed: $uploadFailureReason. Please retry." else "Image upload failed. Please re-select the photograph and try again."
                     )
                 }
                 return@launch
             }
 
+            android.util.Log.i("ClaimIT_Submission", "STAGE: IMAGE_UPLOAD_SUCCESS urls=${uploadedUrls.size}")
+
             _uiState.update { it.copy(uploadProgressMessage = "Publishing report to campus database...") }
+            val tempId = "post_${UUID.randomUUID()}"
             android.util.Log.i("ClaimIT_Submission", "STAGE: DATABASE_SAVE_STARTED itemId=$tempId")
 
             val result = createItemPostUseCase(
@@ -378,6 +382,7 @@ class PostCreationViewModel(
                 aiMetadata = currentState.aiMetadata,
                 acceptedTags = currentState.acceptedTags,
                 imageUrls = uploadedUrls,
+                cloudinaryPublicIds = uploadedPublicIds,
                 contactInfo = currentState.contactInfo,
                 actionTakenRemarks = currentState.actionTakenRemarks,
                 userId = userId,

@@ -38,6 +38,7 @@ class ItemRepositoryImpl(
 ) : ItemRepository {
 
     private val TAG = "ItemRepository"
+    private val cloudinaryUploader = CloudinaryUploader()
     private val postsStateFlow = MutableStateFlow<List<ItemPost>>(emptyList())
     private val savedPostsUserMap = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
 
@@ -173,6 +174,14 @@ class ItemRepositoryImpl(
             }
         }
 
+        val publicIdsList = mutableListOf<String>()
+        val pubArr = snapshot.child("cloudinaryPublicIds")
+        if (pubArr.exists()) {
+            for (pub in pubArr.children) {
+                pub.getValue(String::class.java)?.let { publicIdsList.add(it) }
+            }
+        }
+
         return ItemPost(
             id = id,
             trackingCode = snapshot.child("trackingCode").getValue(String::class.java) ?: "CLM-${id.take(6).uppercase()}",
@@ -203,6 +212,7 @@ class ItemRepositoryImpl(
             aiMetadata = null,
             acceptedTags = emptyList(),
             imageUrls = imageUrlsList,
+            cloudinaryPublicIds = publicIdsList,
             createdAtTimestamp = snapshot.child("createdAtTimestamp").getValue(Long::class.java)
                 ?: snapshot.child("createdAt").getValue(Long::class.java)
                 ?: System.currentTimeMillis(),
@@ -221,57 +231,12 @@ class ItemRepositoryImpl(
     }
 
     /**
-     * Optimizes image prior to storage upload:
-     * - Resizes longest dimension to 1280px max while preserving aspect ratio.
-     * - Compresses to JPEG 80% quality (~200–400KB target).
-     * - Releases temporary scaled bitmaps.
+     * Uploads bitmap directly to Cloudinary using unsigned HTTP multipart request.
+     * Scale to max 1280px, compresses to JPEG 80% quality, caps size at 2MB.
+     * Returns Cloudinary secure_url and public_id.
      */
-    suspend fun uploadBitmapToStorage(
-        bitmap: Bitmap,
-        organizationId: String,
-        itemId: String,
-        index: Int
-    ): Result<String> = withContext(dispatchers.io) {
-        val maxDimension = 1280
-        val width = bitmap.width
-        val height = bitmap.height
-        val max = maxOf(width, height)
-
-        val scaledBitmap = if (max > maxDimension) {
-            val scale = maxDimension.toFloat() / max
-            Bitmap.createScaledBitmap(bitmap, (width * scale).toInt(), (height * scale).toInt(), true)
-        } else {
-            bitmap
-        }
-
-        val baos = ByteArrayOutputStream()
-        scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, baos)
-        val data = baos.toByteArray()
-
-        if (scaledBitmap != bitmap) {
-            scaledBitmap.recycle()
-        }
-
-        val st = storage
-        if (st != null) {
-            try {
-                val ref = st.reference.child("organizations/$organizationId/items/$itemId/img_$index.jpg")
-                ref.putBytes(data).await()
-                val downloadUrl = ref.downloadUrl.await().toString()
-                return@withContext Result.success(downloadUrl)
-            } catch (e: Exception) {
-                Log.w(TAG, "Cloud Storage photo upload warning: ${e.message}, utilizing Base64 image payload fallback")
-            }
-        }
-
-        // Fail-safe Base64 data URI fallback
-        try {
-            val base64Str = android.util.Base64.encodeToString(data, android.util.Base64.NO_WRAP)
-            Result.success("data:image/jpeg;base64,$base64Str")
-        } catch (e: Exception) {
-            Log.e(TAG, "Base64 image encoding failed: ${e.message}", e)
-            Result.failure(e)
-        }
+    suspend fun uploadBitmapToCloudinary(bitmap: Bitmap): Result<CloudinaryUploadResult> {
+        return cloudinaryUploader.uploadImage(bitmap)
     }
 
     override suspend fun createItemPost(post: ItemPost): Result<String> = withContext(dispatchers.io) {
@@ -300,6 +265,7 @@ class ItemRepositoryImpl(
                 "distinguishingFeatures" to post.physicalAttributes.distinguishingFeatures,
                 "acceptedTags" to post.acceptedTags,
                 "imageUrls" to post.imageUrls,
+                "cloudinaryPublicIds" to post.cloudinaryPublicIds,
                 "status" to post.status.name,
                 "contact" to post.finderOrOwnerContact,
                 "remarks" to post.actionTakenRemarks,
