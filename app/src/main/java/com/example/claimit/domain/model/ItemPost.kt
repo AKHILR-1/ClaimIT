@@ -43,6 +43,7 @@ data class ItemPost(
     val aiMetadata: AIVectorMetadata?,
     val acceptedTags: List<String>,
     val imageUrls: List<String>,
+    val cloudinaryPublicIds: List<String> = emptyList(),
     val createdAtTimestamp: Long,
     val status: PostStatus = PostStatus.ACTIVE,
     val finderOrOwnerContact: String,
