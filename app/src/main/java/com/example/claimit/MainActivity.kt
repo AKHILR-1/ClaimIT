@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.example.claimit.core.dispatchers.DefaultDispatchers
+import com.example.claimit.data.repository.AdminRepositoryImpl
 import com.example.claimit.data.repository.AuthRepositoryImpl
 import com.example.claimit.data.repository.CampusLocationRepositoryImpl
 import com.example.claimit.data.repository.ClaimRepositoryImpl
@@ -26,6 +27,7 @@ import com.example.claimit.data.repository.NotificationRepositoryImpl
 import com.example.claimit.domain.usecase.AnalyzeItemImageUseCase
 import com.example.claimit.domain.usecase.CreateItemPostUseCase
 import com.example.claimit.domain.usecase.DetectDuplicateListingsUseCase
+import com.example.claimit.presentation.admin.AdminViewModel
 import com.example.claimit.presentation.main.ClaimItMainScreen
 import com.example.claimit.presentation.main.MainViewModel
 import com.example.claimit.presentation.postcreation.PostCreationViewModel
@@ -42,6 +44,14 @@ class MainActivity : ComponentActivity() {
     private val notificationRepository by lazy { NotificationRepositoryImpl(dispatchers) }
     private val claimRepository by lazy { ClaimRepositoryImpl(itemRepository, dispatchers, notificationRepository) }
     private val moderationRepository by lazy { ModerationRepositoryImpl(itemRepository, dispatchers) }
+    private val adminRepository by lazy {
+        AdminRepositoryImpl(
+            dispatchers = dispatchers,
+            authRepository = authRepository,
+            moderationRepository = moderationRepository,
+            claimRepository = claimRepository
+        )
+    }
 
     private val postCreationViewModel: PostCreationViewModel by viewModels {
         object : ViewModelProvider.Factory {
@@ -80,6 +90,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val adminViewModel: AdminViewModel by viewModels {
+        object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                return AdminViewModel(
+                    adminRepository = adminRepository,
+                    authRepository = authRepository,
+                    moderationRepository = moderationRepository,
+                    dispatchers = dispatchers
+                ) as T
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -91,6 +115,7 @@ class MainActivity : ComponentActivity() {
                     ClaimItMainScreen(
                         postCreationViewModel = postCreationViewModel,
                         mainViewModel = mainViewModel,
+                        adminViewModel = adminViewModel,
                         isDarkTheme = isDarkTheme,
                         onToggleTheme = { isDarkTheme = !isDarkTheme }
                     )

@@ -27,6 +27,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,8 +39,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.claimit.domain.model.ItemPost
-import com.example.claimit.domain.model.UserRole
+import com.example.claimit.domain.repository.AdminAuthState
 import com.example.claimit.presentation.admin.AdminDashboardScreen
+import com.example.claimit.presentation.admin.AdminViewModel
+import com.example.claimit.presentation.admin.ProtectedAdminRoute
 import com.example.claimit.presentation.auth.AuthScreen
 import com.example.claimit.presentation.auth.EmailVerificationScreen
 import com.example.claimit.presentation.claims.ClaimsScreen
@@ -60,6 +63,7 @@ import com.example.claimit.ui.theme.TagAiIndigo
 fun ClaimItMainScreen(
     postCreationViewModel: PostCreationViewModel,
     mainViewModel: MainViewModel,
+    adminViewModel: AdminViewModel? = null,
     modifier: Modifier = Modifier,
     isDarkTheme: Boolean = true,
     onToggleTheme: () -> Unit = {}
@@ -86,7 +90,17 @@ fun ClaimItMainScreen(
     val savedPosts by mainViewModel.savedPosts.collectAsState()
     val isSessionRevoked by mainViewModel.isSessionRevoked.collectAsState()
 
+    val adminAuthState by (adminViewModel?.adminAuthState?.collectAsState()
+        ?: remember { mutableStateOf(AdminAuthState.Idle) })
+
     val currentUser = userState
+
+    // Auto-load Admin Dashboard upon successful Super Admin credential verification
+    LaunchedEffect(adminAuthState) {
+        if (adminAuthState is AdminAuthState.Authorized) {
+            currentDestination = ClaimItNavDestination.ADMIN
+        }
+    }
 
     if (currentUser == null) {
         AuthScreen(
@@ -137,7 +151,6 @@ fun ClaimItMainScreen(
                 ClaimItBottomMenu(
                     currentDestination = currentDestination,
                     matchCount = postUiState.duplicateMatches.size,
-                    userRole = currentUser.role,
                     onDestinationSelected = { destination ->
                         viewingDetailsPost = null
                         currentDestination = destination
@@ -239,36 +252,47 @@ fun ClaimItMainScreen(
                                 )
                             }
                             ClaimItNavDestination.ADMIN -> {
-                                AdminDashboardScreen(
-                                    reportedContentList = reportedQueue,
-                                    auditLogs = auditLogs,
-                                    registeredUsers = registeredUsers,
-                                    activeDeviceSessions = activeDeviceSessions,
-                                    onResolveReportWithDecision = { reportId, status, decision, explanation ->
-                                        mainViewModel.adminResolveReportWithDecision(reportId, status, decision, explanation)
-                                        Toast.makeText(context, "Moderation report resolved.", Toast.LENGTH_SHORT).show()
-                                    },
-                                    onAdminRemoveListing = { itemId, reason, explanation ->
-                                        mainViewModel.adminRemoveListing(itemId, reason, explanation) { success, msg ->
-                                            Toast.makeText(context, msg ?: "Listing removed.", Toast.LENGTH_SHORT).show()
+                                ProtectedAdminRoute(
+                                    adminAuthState = adminAuthState,
+                                    onRetryVerification = { adminViewModel?.verifySuperAdminClaims(true) },
+                                    onReturnToStudentApp = { currentDestination = ClaimItNavDestination.FEED }
+                                ) {
+                                    AdminDashboardScreen(
+                                        reportedContentList = reportedQueue,
+                                        auditLogs = auditLogs,
+                                        registeredUsers = registeredUsers,
+                                        activeDeviceSessions = activeDeviceSessions,
+                                        claimsList = incomingClaimsToReview,
+                                        onResolveReportWithDecision = { reportId, status, decision, explanation ->
+                                            adminViewModel?.resolveReportWithDecision(reportId, status, decision, explanation)
+                                                ?: mainViewModel.adminResolveReportWithDecision(reportId, status, decision, explanation)
+                                            Toast.makeText(context, "Moderation report resolved.", Toast.LENGTH_SHORT).show()
+                                        },
+                                        onAdminRemoveListing = { itemId, reason, explanation ->
+                                            adminViewModel?.removeListing(itemId, reason, explanation)
+                                                ?: mainViewModel.adminRemoveListing(itemId, reason, explanation) { success, msg ->
+                                                    Toast.makeText(context, msg ?: "Listing removed.", Toast.LENGTH_SHORT).show()
+                                                }
+                                        },
+                                        onSuspendUser = { uid ->
+                                            adminViewModel?.suspendUserAccount(uid) ?: mainViewModel.suspendUserAccount(uid)
+                                        },
+                                        onUnsuspendUser = { uid ->
+                                            adminViewModel?.unsuspendUserAccount(uid) ?: mainViewModel.unsuspendUserAccount(uid)
+                                        },
+                                        onRevokeSession = { uid, sId ->
+                                            adminViewModel?.revokeDeviceSession(uid, sId) ?: mainViewModel.revokeDeviceSession(uid, sId)
                                         }
-                                    },
-                                    onSuspendUser = { uid ->
-                                        mainViewModel.suspendUserAccount(uid)
-                                    },
-                                    onUnsuspendUser = { uid ->
-                                        mainViewModel.unsuspendUserAccount(uid)
-                                    },
-                                    onRevokeSession = { uid, sId ->
-                                        mainViewModel.revokeDeviceSession(uid, sId)
-                                    }
-                                )
+                                    )
+                                }
                             }
                             ClaimItNavDestination.PROFILE -> {
                                 ProfileScreen(
                                     currentUser = currentUser,
                                     savedPosts = savedPosts,
-                                    onLogoutClicked = { mainViewModel.logout() },
+                                    onLogoutClicked = {
+                                        adminViewModel?.signOutAdmin() ?: mainViewModel.logout()
+                                    },
                                     onDeleteAccountClicked = {
                                         mainViewModel.deleteAccount()
                                         Toast.makeText(context, "Account deletion request processed.", Toast.LENGTH_LONG).show()
@@ -277,7 +301,9 @@ fun ClaimItMainScreen(
                                         mainViewModel.updateContactEmail(newEmail, pass) { success, msg ->
                                             Toast.makeText(context, msg ?: "Update failed.", Toast.LENGTH_LONG).show()
                                         }
-                                    }
+                                    },
+                                    adminAuthState = adminAuthState,
+                                    onNavigateToAdmin = { currentDestination = ClaimItNavDestination.ADMIN }
                                 )
                             }
                         }
@@ -331,7 +357,6 @@ fun ClaimItMainScreen(
 private fun ClaimItBottomMenu(
     currentDestination: ClaimItNavDestination,
     matchCount: Int,
-    userRole: UserRole,
     onDestinationSelected: (ClaimItNavDestination) -> Unit
 ) {
     NavigationBar(
@@ -345,8 +370,9 @@ private fun ClaimItBottomMenu(
                 shape = RoundedCornerShape(0.dp)
             )
     ) {
+        // Exclude ADMIN explicitly from bottom menu bar
         val availableDestinations = ClaimItNavDestination.entries.filter {
-            (it != ClaimItNavDestination.ADMIN) || (userRole == UserRole.ADMIN)
+            it != ClaimItNavDestination.ADMIN
         }
 
         availableDestinations.forEach { destination ->

@@ -16,17 +16,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Report
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -51,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.claimit.core.util.TimeUtils
 import com.example.claimit.domain.model.AccountStatus
+import com.example.claimit.domain.model.Claim
 import com.example.claimit.domain.model.DeviceSession
 import com.example.claimit.domain.model.ModerationAudit
 import com.example.claimit.domain.model.ReportStatus
@@ -67,6 +75,7 @@ fun AdminDashboardScreen(
     auditLogs: List<ModerationAudit> = emptyList(),
     registeredUsers: List<User> = emptyList(),
     activeDeviceSessions: List<DeviceSession> = emptyList(),
+    claimsList: List<Claim> = emptyList(),
     onResolveReportWithDecision: (reportId: String, status: ReportStatus, decision: String, explanation: String) -> Unit = { _, _, _, _ -> },
     onAdminRemoveListing: (itemId: String, reason: String, explanation: String) -> Unit = { _, _, _ -> },
     onSuspendUser: (userId: String) -> Unit = {},
@@ -75,7 +84,8 @@ fun AdminDashboardScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var selectedTab by remember { mutableStateOf(0) } // 0 = Dashboard Stats, 1 = Moderation Inbox, 2 = Audit Logs, 3 = User & Sessions
+    var selectedTab by remember { mutableStateOf(0) }
+    // 0 = Overview, 1 = All Reports, 2 = Student Management, 3 = Claims Management, 4 = Sub-admin Management, 5 = Audit Logs, 6 = Settings
 
     Column(
         modifier = modifier
@@ -92,18 +102,18 @@ fun AdminDashboardScreen(
                 imageVector = Icons.Default.AdminPanelSettings,
                 contentDescription = null,
                 tint = TagAiIndigo,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(26.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
             Column {
                 Text(
-                    text = "CLAIMIT ADMIN PORTAL",
+                    text = "CLAIMIT SUPER ADMIN PORTAL",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Text(
-                    text = "Central campus moderation, session security & content oversight",
+                    text = "Verified Custom Claims Access • Campus Safety & System Oversight",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp
@@ -113,38 +123,42 @@ fun AdminDashboardScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Navigation Tabs
-        Row(
+        // Navigation Tabs (Horizontal Scrollable Row for mobile-first M3 UI)
+        val tabs = listOf(
+            0 to "OVERVIEW",
+            1 to "REPORTS (${reportedContentList.count { it.status == ReportStatus.PENDING }})",
+            2 to "STUDENTS (${registeredUsers.size})",
+            3 to "CLAIMS (${claimsList.size})",
+            4 to "SUB-ADMINS",
+            5 to "AUDIT LOGS (${auditLogs.size})",
+            6 to "SETTINGS"
+        )
+
+        LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            listOf(
-                0 to "DASHBOARD",
-                1 to "MODERATION INBOX (${reportedContentList.count { it.status == ReportStatus.PENDING }})",
-                2 to "AUDIT HISTORY",
-                3 to "USERS & SESSIONS"
-            ).forEach { (index, label) ->
+            items(tabs) { (index, label) ->
                 val isSelected = selectedTab == index
                 Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isSelected) TagAiIndigo else MaterialTheme.colorScheme.surface)
                         .border(
                             1.dp,
-                            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                            RoundedCornerShape(6.dp)
+                            if (isSelected) TagAiIndigo else MaterialTheme.colorScheme.outline,
+                            RoundedCornerShape(8.dp)
                         )
                         .clickable { selectedTab = index }
-                        .padding(vertical = 6.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = label,
                         style = MaterialTheme.typography.labelSmall,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 9.sp
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 10.sp
                     )
                 }
             }
@@ -153,45 +167,63 @@ fun AdminDashboardScreen(
         Spacer(modifier = Modifier.height(14.dp))
 
         when (selectedTab) {
-            0 -> AdminStatsDashboardTab(
+            0 -> AdminOverviewTab(
                 pendingReportsCount = reportedContentList.count { it.status == ReportStatus.PENDING },
                 totalUsersCount = registeredUsers.size,
                 activeSessionsCount = activeDeviceSessions.size,
-                auditLogsCount = auditLogs.size
+                auditLogsCount = auditLogs.size,
+                claimsCount = claimsList.size
             )
-            1 -> ModerationInboxTab(
+            1 -> ModerationReportsTab(
                 reportedContentList = reportedContentList,
                 onResolveReport = onResolveReportWithDecision
             )
-            2 -> ModerationAuditHistoryTab(auditLogs = auditLogs)
-            3 -> UserAndSessionManagementTab(
+            2 -> StudentManagementTab(
                 users = registeredUsers,
                 deviceSessions = activeDeviceSessions,
                 onSuspendUser = {
                     onSuspendUser(it)
-                    Toast.makeText(context, "User account suspended.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Student account suspended.", Toast.LENGTH_SHORT).show()
                 },
                 onUnsuspendUser = {
                     onUnsuspendUser(it)
-                    Toast.makeText(context, "User account reactivated.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Student account reactivated.", Toast.LENGTH_SHORT).show()
                 },
                 onRevokeSession = { uid, sId ->
                     onRevokeSession(uid, sId)
                     Toast.makeText(context, "Device session revoked.", Toast.LENGTH_SHORT).show()
                 }
             )
+            3 -> ClaimsManagementTab(claims = claimsList)
+            4 -> PendingModuleTab(
+                title = "SUB-ADMIN MANAGEMENT",
+                description = "Sub-admin role provisioning requires trusted Firebase Admin SDK cloud endpoints. In Phase 1, Super Admin claims control all administrative authorization."
+            )
+            5 -> ModerationAuditHistoryTab(auditLogs = auditLogs)
+            6 -> PendingModuleTab(
+                title = "ADMIN SETTINGS & POLICIES",
+                description = "Global automated moderation thresholds, campus email domain controls, and audit retention policies will be configurable in upcoming backend phase releases."
+            )
         }
     }
 }
 
 @Composable
-private fun AdminStatsDashboardTab(
+private fun AdminOverviewTab(
     pendingReportsCount: Int,
     totalUsersCount: Int,
     activeSessionsCount: Int,
-    auditLogsCount: Int
+    auditLogsCount: Int,
+    claimsCount: Int
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = "SYSTEM METRICS & OVERVIEW",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = TagAiIndigo
+        )
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -205,7 +237,7 @@ private fun AdminStatsDashboardTab(
                     .padding(14.dp)
             ) {
                 Column {
-                    Text("FLAGGED INBOX", style = MaterialTheme.typography.labelSmall, color = StatusPendingAmber, fontWeight = FontWeight.Bold)
+                    Text("FLAGGED REPORTS", style = MaterialTheme.typography.labelSmall, color = StatusPendingAmber, fontWeight = FontWeight.Bold, fontSize = 10.sp)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(text = pendingReportsCount.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 }
@@ -220,7 +252,7 @@ private fun AdminStatsDashboardTab(
                     .padding(14.dp)
             ) {
                 Column {
-                    Text("REGISTERED USERS", style = MaterialTheme.typography.labelSmall, color = TagAiIndigo, fontWeight = FontWeight.Bold)
+                    Text("REGISTERED STUDENTS", style = MaterialTheme.typography.labelSmall, color = TagAiIndigo, fontWeight = FontWeight.Bold, fontSize = 10.sp)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(text = totalUsersCount.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 }
@@ -240,7 +272,7 @@ private fun AdminStatsDashboardTab(
                     .padding(14.dp)
             ) {
                 Column {
-                    Text("ACTIVE SESSIONS", style = MaterialTheme.typography.labelSmall, color = StatusFoundEmerald, fontWeight = FontWeight.Bold)
+                    Text("ACTIVE SESSIONS", style = MaterialTheme.typography.labelSmall, color = StatusFoundEmerald, fontWeight = FontWeight.Bold, fontSize = 10.sp)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(text = activeSessionsCount.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 }
@@ -255,20 +287,41 @@ private fun AdminStatsDashboardTab(
                     .padding(14.dp)
             ) {
                 Column {
-                    Text("AUDITED ACTIONS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text("CLAIMS QUEUE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 10.sp)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(text = auditLogsCount.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(text = claimsCount.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(TagAiIndigo.copy(alpha = 0.08f))
+                .border(1.dp, TagAiIndigo.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                .padding(14.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "AUTHORIZATION STATUS",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = TagAiIndigo
+                )
+                Text(
+                    text = "Authenticated via force-refreshed Firebase ID token custom claims (claims['admin'] == true, claims['role'] == 'SUPER_ADMIN'). Student profile fields are excluded from authorization checks.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp
+                )
             }
         }
     }
 }
 
-/**
- * Phase 3 — Standard CLAIMIT Listing Moderation Report View
- */
 @Composable
-private fun ModerationInboxTab(
+private fun ModerationReportsTab(
     reportedContentList: List<ReportedContent>,
     onResolveReport: (reportId: String, status: ReportStatus, decision: String, explanation: String) -> Unit
 ) {
@@ -283,7 +336,7 @@ private fun ModerationInboxTab(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "Moderation queue is empty. No reported content requiring action.",
+                text = "No reported content in moderation queue.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -294,17 +347,14 @@ private fun ModerationInboxTab(
             modifier = Modifier.fillMaxSize()
         ) {
             items(reportedContentList, key = { it.id }) { report ->
-                StandardizedModerationReportCard(
-                    report = report,
-                    onResolveReport = onResolveReport
-                )
+                ModerationReportCard(report = report, onResolveReport = onResolveReport)
             }
         }
     }
 }
 
 @Composable
-private fun StandardizedModerationReportCard(
+private fun ModerationReportCard(
     report: ReportedContent,
     onResolveReport: (reportId: String, status: ReportStatus, decision: String, explanation: String) -> Unit
 ) {
@@ -320,14 +370,13 @@ private fun StandardizedModerationReportCard(
             .padding(14.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            // CLAIMIT — LISTING MODERATION REPORT Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "CLAIMIT — LISTING MODERATION REPORT",
+                    text = "REPORT REF: ${report.reportReference}",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = StatusLostCrimson,
@@ -335,30 +384,22 @@ private fun StandardizedModerationReportCard(
                 )
 
                 Text(
-                    text = "Ref: ${report.reportReference}",
+                    text = TimeUtils.formatRelativeTime(report.createdAtTimestamp),
                     style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 10.sp
                 )
             }
 
             Text(
-                text = "Reported Listing: ${report.itemName} (ID: ${report.itemId})",
+                text = "Item: ${report.itemName} (ID: ${report.itemId})",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
 
             Text(
-                text = "Submitted By: ${report.reporterName} (UID: ${report.reporterUid.take(8)}) • Org: ${report.organizationId}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp
-            )
-
-            Text(
-                text = "Category: ${report.reportCategory} • Submission Date: ${TimeUtils.formatRelativeTime(report.createdAtTimestamp)}",
+                text = "Reporter: ${report.reporterName} • Reason: ${report.reportCategory}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp
@@ -372,24 +413,10 @@ private fun StandardizedModerationReportCard(
                     .padding(8.dp)
             ) {
                 Text(
-                    text = "Explanation: ${report.explanation}",
+                    text = "Details: ${report.explanation}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 11.sp
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Review Status: ${report.reviewStatus.name}",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = if (report.reviewStatus == ReportStatus.PENDING) StatusPendingAmber else StatusFoundEmerald,
-                    fontSize = 10.sp
                 )
             }
 
@@ -408,7 +435,7 @@ private fun StandardizedModerationReportCard(
 
                     OutlinedButton(
                         onClick = {
-                            onResolveReport(report.id, ReportStatus.DISMISSED, "DISMISSED", "Report dismissed after investigation")
+                            onResolveReport(report.id, ReportStatus.DISMISSED, "DISMISSED", "Report dismissed by Super Admin")
                         },
                         modifier = Modifier.weight(1f)
                     ) {
@@ -422,15 +449,14 @@ private fun StandardizedModerationReportCard(
     if (isReviewDialogOpen) {
         AlertDialog(
             onDismissRequest = { isReviewDialogOpen = false },
-            title = { Text("Confirm Moderation Action", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) },
+            title = { Text("Confirm Removal Action", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Provide administrator explanation for removing '${report.itemName}':", style = MaterialTheme.typography.bodySmall)
-
+                    Text("Enter administrator reason for removing '${report.itemName}':", style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(
                         value = adminExplanationInput,
                         onValueChange = { adminExplanationInput = it },
-                        placeholder = { Text("Admin explanation / reason...") },
+                        placeholder = { Text("Explanation...") },
                         minLines = 2,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -458,6 +484,150 @@ private fun StandardizedModerationReportCard(
 }
 
 @Composable
+private fun StudentManagementTab(
+    users: List<User>,
+    deviceSessions: List<DeviceSession>,
+    onSuspendUser: (String) -> Unit,
+    onUnsuspendUser: (String) -> Unit,
+    onRevokeSession: (userId: String, sessionId: String) -> Unit
+) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        item {
+            Text(
+                text = "REGISTERED ACCOUNTS (${users.size})",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = TagAiIndigo
+            )
+        }
+
+        items(users, key = { it.id }) { user ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                    .padding(12.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${user.displayName} (${user.role.name})",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        val isSuspended = user.status == AccountStatus.SUSPENDED
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (isSuspended) StatusLostCrimson.copy(alpha = 0.15f) else StatusFoundEmerald.copy(alpha = 0.15f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = if (isSuspended) "SUSPENDED" else "ACTIVE",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isSuspended) StatusLostCrimson else StatusFoundEmerald,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "College Email: ${user.collegeEmail} • Reg #: ${user.studentId.ifEmpty { "N/A" }}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp
+                    )
+
+                    if (user.role != com.example.claimit.domain.model.UserRole.ADMIN) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (user.status == AccountStatus.SUSPENDED) {
+                                Button(
+                                    onClick = { onUnsuspendUser(user.id) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = StatusFoundEmerald),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text("REACTIVATE ACCOUNT", style = MaterialTheme.typography.labelSmall, fontSize = 10.sp)
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = { onSuspendUser(user.id) },
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text("SUSPEND ACCOUNT", style = MaterialTheme.typography.labelSmall, color = StatusLostCrimson, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClaimsManagementTab(claims: List<Claim>) {
+    if (claims.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "No active claims recorded.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    } else {
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(claims, key = { it.id }) { claim ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                        .padding(12.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Claim: ${claim.itemTitle}",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Claimant ID: ${claim.claimantId.take(8)} • Status: ${claim.status.name}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ModerationAuditHistoryTab(auditLogs: List<ModerationAudit>) {
     if (auditLogs.isEmpty()) {
         Box(
@@ -470,7 +640,7 @@ private fun ModerationAuditHistoryTab(auditLogs: List<ModerationAudit>) {
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "No moderation audit logs recorded yet.",
+                text = "No moderation audit history recorded yet.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -530,148 +700,57 @@ private fun ModerationAuditHistoryTab(auditLogs: List<ModerationAudit>) {
 }
 
 @Composable
-private fun UserAndSessionManagementTab(
-    users: List<User>,
-    deviceSessions: List<DeviceSession>,
-    onSuspendUser: (String) -> Unit,
-    onUnsuspendUser: (String) -> Unit,
-    onRevokeSession: (userId: String, sessionId: String) -> Unit
+private fun PendingModuleTab(
+    title: String,
+    description: String
 ) {
-    LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize()
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, StatusPendingAmber.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+            .padding(20.dp)
     ) {
-        item {
-            Text(
-                text = "REGISTERED USERS (${users.size})",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = TagAiIndigo
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.HourglassEmpty,
+                contentDescription = null,
+                tint = StatusPendingAmber,
+                modifier = Modifier.size(36.dp)
             )
-        }
 
-        items(users, key = { it.id }) { user ->
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = StatusPendingAmber
+            )
+
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                    .padding(12.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(StatusPendingAmber.copy(alpha = 0.15f))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "${user.displayName} (${user.role.name})",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        val isSuspended = user.status == AccountStatus.SUSPENDED
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isSuspended) StatusLostCrimson.copy(alpha = 0.15f) else StatusFoundEmerald.copy(alpha = 0.15f))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = if (isSuspended) "SUSPENDED" else "ACTIVE",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isSuspended) StatusLostCrimson else StatusFoundEmerald,
-                                fontSize = 10.sp
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "College Email: ${user.collegeEmail} • Student ID: ${user.studentId.ifEmpty { "N/A" }}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp
-                    )
-
-                    if (user.role != com.example.claimit.domain.model.UserRole.ADMIN) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (user.status == AccountStatus.SUSPENDED) {
-                                Button(
-                                    onClick = { onUnsuspendUser(user.id) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = StatusFoundEmerald),
-                                    modifier = Modifier.height(32.dp)
-                                ) {
-                                    Text("REACTIVATE USER", style = MaterialTheme.typography.labelSmall, fontSize = 10.sp)
-                                }
-                            } else {
-                                OutlinedButton(
-                                    onClick = { onSuspendUser(user.id) },
-                                    modifier = Modifier.height(32.dp)
-                                ) {
-                                    Text("SUSPEND ACCOUNT", style = MaterialTheme.typography.labelSmall, color = StatusLostCrimson, fontSize = 10.sp)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "ACTIVE DEVICE SESSIONS (${deviceSessions.size})",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = TagAiIndigo
-            )
-        }
-
-        if (deviceSessions.isEmpty()) {
-            item {
-                Text("No active sessions recorded.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        } else {
-            items(deviceSessions, key = { it.sessionId }) { session ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surface)
-                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                        .padding(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "Device: ${session.deviceName} (ID: ${session.deviceId})",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
-                            )
-                            Text(
-                                text = "User UID: ${session.userId.take(8)} • Active: ${session.isActive}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.sp
-                            )
-                        }
-
-                        Button(
-                            onClick = { onRevokeSession(session.userId, session.sessionId) },
-                            colors = ButtonDefaults.buttonColors(containerColor = StatusLostCrimson),
-                            modifier = Modifier.height(32.dp)
-                        ) {
-                            Text("REVOKE", style = MaterialTheme.typography.labelSmall, fontSize = 10.sp)
-                        }
-                    }
-                }
+                Text(
+                    text = "PENDING BACKEND ENDPOINT IMPLEMENTATION",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = StatusPendingAmber,
+                    fontSize = 10.sp
+                )
             }
         }
     }

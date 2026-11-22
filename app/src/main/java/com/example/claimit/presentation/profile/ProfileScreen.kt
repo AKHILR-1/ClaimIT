@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import com.example.claimit.domain.model.ItemPost
 import com.example.claimit.domain.model.User
 import com.example.claimit.domain.model.UserRole
+import com.example.claimit.domain.repository.AdminAuthState
 import com.example.claimit.ui.theme.StatusFoundEmerald
 import com.example.claimit.ui.theme.StatusLostCrimson
 import com.example.claimit.ui.theme.TagAiIndigo
@@ -63,6 +64,8 @@ fun ProfileScreen(
     onLogoutClicked: () -> Unit,
     onDeleteAccountClicked: () -> Unit,
     onUpdateContactEmailSubmitted: (newContactEmail: String, currentPass: String) -> Unit = { _, _ -> },
+    adminAuthState: AdminAuthState = AdminAuthState.Idle,
+    onNavigateToAdmin: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isChangeEmailDialogOpen by remember { mutableStateOf(false) }
@@ -134,16 +137,23 @@ fun ProfileScreen(
                             }
                         }
 
-                        // Role Badge
+                        // Role Badge based on verified custom claims
+                        val isSuperAdminAuthorized = adminAuthState is AdminAuthState.Authorized
+                        val roleBadgeText = when (adminAuthState) {
+                            is AdminAuthState.Authorized -> "SUPER ADMIN"
+                            is AdminAuthState.Loading -> "VERIFYING..."
+                            else -> if (currentUser?.role == UserRole.ADMIN) "ADMIN" else (currentUser?.role?.name ?: UserRole.STUDENT.name)
+                        }
+
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(TagAiIndigo.copy(alpha = 0.15f))
+                                .background(if (isSuperAdminAuthorized) TagAiIndigo.copy(alpha = 0.25f) else TagAiIndigo.copy(alpha = 0.15f))
                                 .border(1.dp, TagAiIndigo, RoundedCornerShape(4.dp))
                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
                             Text(
-                                text = currentUser?.role?.name ?: UserRole.STUDENT.name,
+                                text = roleBadgeText,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = TagAiIndigo,
                                 fontWeight = FontWeight.Bold,
@@ -243,6 +253,47 @@ fun ProfileScreen(
                                     Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(12.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text("CHANGE", style = MaterialTheme.typography.labelSmall, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    // Protected Admin Portal Navigation Shortcut
+                    if (adminAuthState is AdminAuthState.Authorized || currentUser?.role == UserRole.ADMIN) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(TagAiIndigo.copy(alpha = 0.12f))
+                                .border(1.dp, TagAiIndigo, RoundedCornerShape(8.dp))
+                                .padding(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "SUPER ADMIN PORTAL",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TagAiIndigo
+                                    )
+                                    Text(
+                                        text = "Verified Super Admin Custom Claims active",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 11.sp
+                                    )
+                                }
+
+                                Button(
+                                    onClick = onNavigateToAdmin,
+                                    colors = ButtonDefaults.buttonColors(containerColor = TagAiIndigo),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text("OPEN PORTAL", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, fontSize = 10.sp)
                                 }
                             }
                         }
