@@ -71,7 +71,8 @@ import com.example.claimit.ui.theme.TagAiIndigo
 @Composable
 fun PostCreationScreen(
     viewModel: PostCreationViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onNavigateToFeed: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -93,9 +94,10 @@ fun PostCreationScreen(
                 is PostCreationSideEffect.PostCreatedSuccessfully -> {
                     Toast.makeText(
                         context,
-                        "Report Published Successfully!\nTracking Code: ${effect.trackingCode}",
+                        "Report uploaded successfully!\nTracking Code: ${effect.trackingCode}",
                         Toast.LENGTH_LONG
                     ).show()
+                    onNavigateToFeed()
                 }
                 is PostCreationSideEffect.ConnectWithFinderOrOwner -> {
                     Toast.makeText(
@@ -138,6 +140,47 @@ fun PostCreationScreen(
                     1 -> Step1Overview(uiState = uiState, viewModel = viewModel)
                     2 -> Step2CategoryAndTags(uiState = uiState, viewModel = viewModel)
                     3 -> Step3LocationAndContact(uiState = uiState, viewModel = viewModel)
+                }
+            }
+
+            if (!uiState.errorMessage.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.errorContainer)
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        text = uiState.errorMessage ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            if (!uiState.uploadProgressMessage.isNullOrBlank()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(TagAiIndigo.copy(alpha = 0.12f))
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = TagAiIndigo
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = uiState.uploadProgressMessage ?: "Processing...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TagAiIndigo,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
 
@@ -232,7 +275,7 @@ fun PostCreationScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(64.dp))
         }
 
         // Split-card comparison bottom sheet modal
