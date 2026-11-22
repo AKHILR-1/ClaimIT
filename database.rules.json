@@ -3,7 +3,7 @@
     "users": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true)",
         "collegeEmail": {
           ".validate": "!data.exists() || data.val() === newData.val()"
         },
@@ -17,7 +17,7 @@
     },
     "notifications": {
       "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
+        ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true)",
         ".write": "auth != null"
       }
     },
@@ -30,7 +30,7 @@
     },
     "fcmTokens": {
       "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
+        ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true)",
         "$deviceId": {
           ".write": "auth != null && auth.uid === $uid"
         }
@@ -60,12 +60,19 @@
     "organizations": {
       "$orgId": {
         "items": {
-          ".read": "auth != null",
+          ".read": "auth != null && (root.child('users').child(auth.uid).child('organizationId').val() === $orgId || root.child('users').child(auth.uid).child('collegeId').val() === $orgId || auth.token.admin === true || !root.child('users').child(auth.uid).exists())",
           "$itemId": {
-            ".write": "auth != null",
-            ".validate": "newData.hasChild('imageUrls') || newData.hasChild('title')"
+            ".write": "auth != null && (!data.exists() ? (newData.child('userId').val() === auth.uid || newData.child('ownerUid').val() === auth.uid || auth.token.admin === true) : (data.child('userId').val() === auth.uid || data.child('ownerUid').val() === auth.uid || auth.token.admin === true))",
+            ".validate": "newData.hasChildren(['title', 'type', 'category'])"
           }
         }
+      }
+    },
+    "items": {
+      ".read": "auth != null",
+      "$itemId": {
+        ".write": "auth != null && (!data.exists() ? (newData.child('userId').val() === auth.uid || newData.child('ownerUid').val() === auth.uid || auth.token.admin === true) : (data.child('userId').val() === auth.uid || data.child('ownerUid').val() === auth.uid || auth.token.admin === true))",
+        ".validate": "newData.hasChildren(['title', 'type', 'category'])"
       }
     }
   }
