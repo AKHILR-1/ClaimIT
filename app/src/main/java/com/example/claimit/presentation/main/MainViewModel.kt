@@ -59,7 +59,7 @@ class MainViewModel(
     @OptIn(ExperimentalCoroutinesApi::class)
     val userNotifications: StateFlow<List<NotificationItem>> = currentUserState.flatMapLatest { user ->
         val userId = user?.id ?: ""
-        notificationRepository.getNotificationsForUser(userId)
+        if (userId.isBlank()) kotlinx.coroutines.flow.flowOf(emptyList()) else notificationRepository.getNotificationsForUser(userId)
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val unreadNotificationCount: StateFlow<Int> = userNotifications.map { list ->
@@ -69,13 +69,13 @@ class MainViewModel(
     @OptIn(ExperimentalCoroutinesApi::class)
     val mySubmittedClaims: StateFlow<List<Claim>> = currentUserState.flatMapLatest { user ->
         val userId = user?.id ?: ""
-        claimRepository.getClaimsForUser(userId)
+        if (userId.isBlank()) kotlinx.coroutines.flow.flowOf(emptyList()) else claimRepository.getClaimsForUser(userId)
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val incomingClaimsToReview: StateFlow<List<Claim>> = currentUserState.flatMapLatest { user ->
         val userId = user?.id ?: ""
-        claimRepository.getClaimsForListingOwner(userId)
+        if (userId.isBlank()) kotlinx.coroutines.flow.flowOf(emptyList()) else claimRepository.getClaimsForListingOwner(userId)
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val reportedQueue: StateFlow<List<ReportedContent>> = moderationRepository.getReportedContentQueue()
@@ -90,13 +90,13 @@ class MainViewModel(
     @OptIn(ExperimentalCoroutinesApi::class)
     val activeDeviceSessions: StateFlow<List<DeviceSession>> = currentUserState.flatMapLatest { user ->
         val userId = user?.id ?: ""
-        authRepository.getActiveDeviceSessions(userId)
+        if (userId.isBlank()) kotlinx.coroutines.flow.flowOf(emptyList()) else authRepository.getActiveDeviceSessions(userId)
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val savedPosts: StateFlow<List<ItemPost>> = currentUserState.flatMapLatest { user ->
         val userId = user?.id ?: ""
-        itemRepository.getSavedPosts(userId)
+        if (userId.isBlank()) kotlinx.coroutines.flow.flowOf(emptyList()) else itemRepository.getSavedPosts(userId)
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     fun login(email: String, pass: String) {
