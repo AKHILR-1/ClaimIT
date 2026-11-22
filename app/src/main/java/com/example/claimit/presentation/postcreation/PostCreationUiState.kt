@@ -10,6 +10,15 @@ import com.example.claimit.domain.model.ItemCategory
 import com.example.claimit.domain.model.ItemType
 import com.example.claimit.domain.model.PhysicalAttributes
 
+enum class ReportSubmissionStatus {
+    IDLE,
+    VALIDATING,
+    UPLOADING_IMAGES,
+    SAVING_REPORT,
+    SUCCESS,
+    ERROR
+}
+
 data class PostCreationUiState(
     val itemType: ItemType = ItemType.FOUND,
     val title: String = "",
@@ -43,6 +52,7 @@ data class PostCreationUiState(
     val selectedDuplicateForComparison: DuplicateMatchResult? = null,
 
     // Form lifecycle state
+    val submissionStatus: ReportSubmissionStatus = ReportSubmissionStatus.IDLE,
     val isSubmitting: Boolean = false,
     val uploadProgressMessage: String? = null,
     val createdPostId: String? = null,
