@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 
 interface ClaimRepository {
     suspend fun submitClaim(claim: Claim): Result<String>
+    fun getAllClaims(): Flow<List<Claim>>
     fun getClaimsForUser(userId: String): Flow<List<Claim>>
     fun getClaimsForListingOwner(ownerId: String): Flow<List<Claim>>
     fun getClaimsForItem(itemId: String): Flow<List<Claim>>

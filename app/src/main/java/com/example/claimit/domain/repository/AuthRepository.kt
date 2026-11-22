@@ -1,5 +1,6 @@
 package com.example.claimit.domain.repository
 
+import com.example.claimit.domain.model.DeviceSession
 import com.example.claimit.domain.model.User
 import com.example.claimit.domain.model.UserRole
 import kotlinx.coroutines.flow.Flow
@@ -26,7 +27,8 @@ interface AuthRepository {
     suspend fun removeFcmToken(deviceId: String): Result<Unit>
     suspend fun registerSession(userId: String, deviceId: String, deviceName: String, isAdmin: Boolean): Result<String>
     fun observeSessionRevocation(userId: String, sessionId: String): Flow<Boolean>
-    fun getActiveDeviceSessions(userId: String): Flow<List<com.example.claimit.domain.model.DeviceSession>>
+    fun getActiveDeviceSessions(userId: String): Flow<List<DeviceSession>>
+    fun getAllDeviceSessions(): Flow<List<DeviceSession>>
     suspend fun revokeSession(userId: String, sessionId: String): Result<Unit>
     suspend fun suspendUserAccount(userId: String): Result<Unit>
     suspend fun unsuspendUserAccount(userId: String): Result<Unit>

@@ -2,9 +2,15 @@ package com.example.claimit.data.repository
 
 import android.util.Log
 import com.example.claimit.core.dispatchers.CoroutineDispatchers
+import com.example.claimit.domain.model.AccountStatus
 import com.example.claimit.domain.model.Claim
+import com.example.claimit.domain.model.ClaimStatus
 import com.example.claimit.domain.model.DeviceSession
+import com.example.claimit.domain.model.ItemPost
+import com.example.claimit.domain.model.ItemType
 import com.example.claimit.domain.model.ModerationAudit
+import com.example.claimit.domain.model.PostStatus
+import com.example.claimit.domain.model.ReportStatus
 import com.example.claimit.domain.model.ReportedContent
 import com.example.claimit.domain.model.User
 import com.example.claimit.domain.repository.AdminAuthState
@@ -12,6 +18,7 @@ import com.example.claimit.domain.repository.AdminOverviewStats
 import com.example.claimit.domain.repository.AdminRepository
 import com.example.claimit.domain.repository.AuthRepository
 import com.example.claimit.domain.repository.ClaimRepository
+import com.example.claimit.domain.repository.ItemRepository
 import com.example.claimit.domain.repository.ModerationRepository
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.flow.Flow
@@ -19,13 +26,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 class AdminRepositoryImpl(
     private val dispatchers: CoroutineDispatchers,
     private val authRepository: AuthRepository,
+    private val itemRepository: ItemRepository,
     private val moderationRepository: ModerationRepository,
     private val claimRepository: ClaimRepository,
     private val firebaseAuth: FirebaseAuth? = try { FirebaseAuth.getInstance() } catch (_: Exception) { null }
@@ -43,7 +50,6 @@ class AdminRepositoryImpl(
         val auth = firebaseAuth
 
         if (auth == null) {
-            // Check fallback state for unit test / offline environment if current user is admin
             val currentUserModel = authRepository.currentUserState.value
             if (currentUserModel != null && currentUserModel.role == com.example.claimit.domain.model.UserRole.ADMIN) {
                 val authorized = AdminAuthState.Authorized(
@@ -117,23 +123,38 @@ class AdminRepositoryImpl(
     }
 
     override fun getOverviewStats(): Flow<AdminOverviewStats> {
-        val userFlow = authRepository.currentUserState
-        val currentUserId = userFlow.value?.id ?: ""
-
-        val reportsFlow = moderationRepository.getReportedContentQueue()
+        val itemsFlow = itemRepository.getAllItemPosts()
         val usersFlow = authRepository.getAllRegisteredUsers()
-        val sessionsFlow = if (currentUserId.isNotBlank()) authRepository.getActiveDeviceSessions(currentUserId) else flowOf(emptyList())
-        val auditFlow = moderationRepository.getModerationAuditLogs()
+        val claimsFlow = claimRepository.getAllClaims()
+        val sessionsFlow = authRepository.getAllDeviceSessions()
+        val flaggedReportsFlow = moderationRepository.getReportedContentQueue()
 
-        return combine(reportsFlow, usersFlow, sessionsFlow, auditFlow) { reports, users, sessions, audits ->
+        return combine(itemsFlow, usersFlow, claimsFlow, sessionsFlow, flaggedReportsFlow) { items, users, claims, sessions, flaggedReports ->
             AdminOverviewStats(
-                pendingReportsCount = reports.count { it.status == com.example.claimit.domain.model.ReportStatus.PENDING },
+                totalReportsCount = items.size,
+                lostReportsCount = items.count { it.type == ItemType.LOST },
+                foundReportsCount = items.count { it.type == ItemType.FOUND },
+                activeReportsCount = items.count { it.status == PostStatus.ACTIVE || it.status == PostStatus.CLAIM_PENDING || it.status == PostStatus.CLAIM_APPROVED },
+                removedReportsCount = items.count { it.status == PostStatus.REMOVED || it.status == PostStatus.ARCHIVED },
+                pendingFlaggedReportsCount = flaggedReports.count { it.status == ReportStatus.PENDING },
+
                 totalUsersCount = users.size,
-                activeSessionsCount = sessions.size,
-                auditLogsCount = audits.size,
-                pendingClaimsCount = 0
+                verifiedUsersCount = users.count { it.isEmailVerified || it.status == AccountStatus.VERIFIED },
+                activeUsersCount = users.count { it.status != AccountStatus.SUSPENDED },
+                suspendedUsersCount = users.count { it.status == AccountStatus.SUSPENDED },
+
+                totalClaimsCount = claims.size,
+                pendingClaimsCount = claims.count { it.status == ClaimStatus.PENDING },
+                approvedClaimsCount = claims.count { it.status == ClaimStatus.APPROVED },
+                rejectedClaimsCount = claims.count { it.status == ClaimStatus.REJECTED },
+
+                activeSessionsCount = sessions.size
             )
         }
+    }
+
+    override fun getAllItemPosts(): Flow<List<ItemPost>> {
+        return itemRepository.getAllItemPosts()
     }
 
     override fun getReportedContentQueue(): Flow<List<ReportedContent>> {
@@ -149,14 +170,10 @@ class AdminRepositoryImpl(
     }
 
     override fun getActiveDeviceSessions(): Flow<List<DeviceSession>> {
-        val currentUserId = authRepository.currentUserState.value?.id ?: ""
-        if (currentUserId.isBlank()) return flowOf(emptyList())
-        return authRepository.getActiveDeviceSessions(currentUserId)
+        return authRepository.getAllDeviceSessions()
     }
 
     override fun getClaimsList(): Flow<List<Claim>> {
-        val currentUserId = authRepository.currentUserState.value?.id ?: ""
-        if (currentUserId.isBlank()) return flowOf(emptyList())
-        return claimRepository.getClaimsForListingOwner(currentUserId)
+        return claimRepository.getAllClaims()
     }
 }

@@ -3,6 +3,7 @@ package com.example.claimit
 import com.example.claimit.data.repository.AdminRepositoryImpl
 import com.example.claimit.data.repository.AuthRepositoryImpl
 import com.example.claimit.data.repository.ClaimRepositoryImpl
+import com.example.claimit.data.repository.ImageStorageRepositoryImpl
 import com.example.claimit.data.repository.ItemRepositoryImpl
 import com.example.claimit.data.repository.ModerationRepositoryImpl
 import com.example.claimit.data.repository.NotificationRepositoryImpl
@@ -19,6 +20,7 @@ import org.junit.Test
 class AdminRepositoryTest {
 
     private val dispatchers = TestCoroutineDispatchers()
+    private lateinit var imageStorageRepository: ImageStorageRepositoryImpl
     private lateinit var authRepository: AuthRepositoryImpl
     private lateinit var itemRepository: ItemRepositoryImpl
     private lateinit var notificationRepository: NotificationRepositoryImpl
@@ -28,8 +30,9 @@ class AdminRepositoryTest {
 
     @Before
     fun setup() {
+        imageStorageRepository = ImageStorageRepositoryImpl()
         authRepository = AuthRepositoryImpl(dispatchers)
-        itemRepository = ItemRepositoryImpl(dispatchers)
+        itemRepository = ItemRepositoryImpl(dispatchers, imageStorageRepository)
         notificationRepository = NotificationRepositoryImpl(dispatchers)
         claimRepository = ClaimRepositoryImpl(itemRepository, dispatchers, notificationRepository)
         moderationRepository = ModerationRepositoryImpl(itemRepository, dispatchers)
@@ -37,6 +40,7 @@ class AdminRepositoryTest {
         adminRepository = AdminRepositoryImpl(
             dispatchers = dispatchers,
             authRepository = authRepository,
+            itemRepository = itemRepository,
             moderationRepository = moderationRepository,
             claimRepository = claimRepository
         )
@@ -70,7 +74,9 @@ class AdminRepositoryTest {
         val viewModel = AdminViewModel(
             adminRepository = adminRepository,
             authRepository = authRepository,
+            itemRepository = itemRepository,
             moderationRepository = moderationRepository,
+            imageStorageRepository = imageStorageRepository,
             dispatchers = dispatchers
         )
 
@@ -92,10 +98,11 @@ class AdminRepositoryTest {
     }
 
     @Test
-    fun `getOverviewStats emits system metrics`() = runBlocking {
+    fun `getOverviewStats emits real system metrics`() = runBlocking {
         authRepository.login("admin@campus.edu", "admin123")
         val stats = adminRepository.getOverviewStats().first()
         assertNotNull(stats)
         assertTrue(stats.totalUsersCount >= 0)
+        assertTrue(stats.totalReportsCount >= 0)
     }
 }

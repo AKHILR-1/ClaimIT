@@ -709,6 +709,58 @@ class AuthRepositoryImpl(
         }
     }
 
+    override fun getAllDeviceSessions(): Flow<List<com.example.claimit.domain.model.DeviceSession>> {
+        val rtdb = realtimeDatabase ?: return kotlinx.coroutines.flow.flowOf(emptyList())
+
+        return callbackFlow {
+            val ref = rtdb.reference.child("deviceSessions")
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val list = mutableListOf<com.example.claimit.domain.model.DeviceSession>()
+                    if (snapshot.exists()) {
+                        for (userNode in snapshot.children) {
+                            val userId = userNode.key ?: continue
+                            for (child in userNode.children) {
+                                try {
+                                    val sId = child.key ?: continue
+                                    val dId = child.child("deviceId").getValue(String::class.java) ?: ""
+                                    val dName = child.child("deviceName").getValue(String::class.java) ?: "Android Device"
+                                    val active = child.child("isActive").getValue(Boolean::class.java) ?: false
+                                    val created = child.child("createdAt").getValue(Long::class.java) ?: System.currentTimeMillis()
+                                    val lastActive = child.child("lastActive").getValue(Long::class.java) ?: System.currentTimeMillis()
+
+                                    if (active) {
+                                        list.add(
+                                            com.example.claimit.domain.model.DeviceSession(
+                                                sessionId = sId,
+                                                userId = userId,
+                                                deviceId = dId,
+                                                deviceName = dName,
+                                                isActive = active,
+                                                createdAtTimestamp = created,
+                                                lastActiveTimestamp = lastActive
+                                            )
+                                        )
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error parsing all device sessions: ${e.message}")
+                                }
+                            }
+                        }
+                    }
+                    trySend(list)
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.w(TAG, "All device sessions listener cancelled: ${error.message}")
+                }
+            }
+
+            ref.addValueEventListener(listener)
+            awaitClose { ref.removeEventListener(listener) }
+        }
+    }
+
     override suspend fun revokeSession(userId: String, sessionId: String): Result<Unit> = withContext(dispatchers.io) {
         try {
             realtimeDatabase?.let { rtdb ->

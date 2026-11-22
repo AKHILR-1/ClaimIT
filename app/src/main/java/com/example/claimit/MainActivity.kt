@@ -20,6 +20,7 @@ import com.example.claimit.data.repository.AuthRepositoryImpl
 import com.example.claimit.data.repository.CampusLocationRepositoryImpl
 import com.example.claimit.data.repository.ClaimRepositoryImpl
 import com.example.claimit.data.repository.DuplicateDetectionRepositoryImpl
+import com.example.claimit.data.repository.ImageStorageRepositoryImpl
 import com.example.claimit.data.repository.ItemClassificationRepositoryImpl
 import com.example.claimit.data.repository.ItemRepositoryImpl
 import com.example.claimit.data.repository.ModerationRepositoryImpl
@@ -36,8 +37,9 @@ import com.example.claimit.ui.theme.ClaimITTheme
 class MainActivity : ComponentActivity() {
 
     private val dispatchers by lazy { DefaultDispatchers() }
+    private val imageStorageRepository by lazy { ImageStorageRepositoryImpl() }
     private val authRepository by lazy { AuthRepositoryImpl(dispatchers) }
-    private val itemRepository by lazy { ItemRepositoryImpl(dispatchers) }
+    private val itemRepository by lazy { ItemRepositoryImpl(dispatchers, imageStorageRepository) }
     private val locationRepository by lazy { CampusLocationRepositoryImpl(dispatchers) }
     private val classificationRepository by lazy { ItemClassificationRepositoryImpl(dispatchers) }
     private val duplicateRepository by lazy { DuplicateDetectionRepositoryImpl(itemRepository, dispatchers) }
@@ -48,6 +50,7 @@ class MainActivity : ComponentActivity() {
         AdminRepositoryImpl(
             dispatchers = dispatchers,
             authRepository = authRepository,
+            itemRepository = itemRepository,
             moderationRepository = moderationRepository,
             claimRepository = claimRepository
         )
@@ -97,7 +100,9 @@ class MainActivity : ComponentActivity() {
                 return AdminViewModel(
                     adminRepository = adminRepository,
                     authRepository = authRepository,
+                    itemRepository = itemRepository,
                     moderationRepository = moderationRepository,
+                    imageStorageRepository = imageStorageRepository,
                     dispatchers = dispatchers
                 ) as T
             }

@@ -24,4 +24,8 @@ class ImageStorageRepositoryImpl(
     override suspend fun getImage(fileId: String): Result<Bitmap> {
         return googleDriveUploader.getImage(fileId)
     }
+
+    override suspend fun deleteImage(fileId: String): Result<Unit> {
+        return googleDriveUploader.deleteImage(fileId)
+    }
 }

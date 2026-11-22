@@ -9,8 +9,11 @@ import com.example.claimit.domain.model.PostStatus
 import com.example.claimit.domain.repository.ClaimRepository
 import com.example.claimit.domain.repository.ItemRepository
 import com.example.claimit.domain.repository.NotificationRepository
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
+import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -30,6 +33,73 @@ class ClaimRepositoryImpl(
 
     private val TAG = "ClaimRepository"
     private val claimsStateFlow = MutableStateFlow<List<Claim>>(emptyList())
+
+    init {
+        listenToRealtimeDatabaseClaims()
+    }
+
+    private fun listenToRealtimeDatabaseClaims() {
+        val rtdb = realtimeDatabase ?: return
+        try {
+            rtdb.reference.child("claims")
+                .addValueEventListener(object : ValueEventListener {
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        val list = mutableListOf<Claim>()
+                        if (snapshot.exists()) {
+                            for (child in snapshot.children) {
+                                try {
+                                    val claim = parseClaimSnapshot(child) ?: continue
+                                    list.add(claim)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error parsing claim snapshot: ${e.message}")
+                                }
+                            }
+                        }
+                        claimsStateFlow.value = list.sortedByDescending { it.createdAtTimestamp }
+                    }
+
+                    override fun onCancelled(error: DatabaseError) {
+                        Log.w(TAG, "RTDB claims listener cancelled: ${error.message}")
+                    }
+                })
+        } catch (e: Exception) {
+            Log.w(TAG, "Exception initializing RTDB claims listener: ${e.message}")
+        }
+    }
+
+    private fun parseClaimSnapshot(snapshot: DataSnapshot): Claim? {
+        val id = snapshot.key ?: snapshot.child("id").getValue(String::class.java) ?: return null
+        val itemId = snapshot.child("itemId").getValue(String::class.java) ?: ""
+        val itemTitle = snapshot.child("itemTitle").getValue(String::class.java) ?: "Found Item"
+        val claimantId = snapshot.child("claimantUid").getValue(String::class.java) ?: snapshot.child("claimantId").getValue(String::class.java) ?: ""
+        val claimantName = snapshot.child("claimantName").getValue(String::class.java) ?: "Student"
+        val claimantContact = snapshot.child("claimantContact").getValue(String::class.java) ?: ""
+        val uploaderId = snapshot.child("uploaderUid").getValue(String::class.java) ?: snapshot.child("itemOwnerOrFinderId").getValue(String::class.java) ?: ""
+        val statusStr = snapshot.child("status").getValue(String::class.java) ?: ClaimStatus.PENDING.name
+        val status = try { ClaimStatus.valueOf(statusStr) } catch (_: Exception) { ClaimStatus.PENDING }
+
+        val created = snapshot.child("createdAtTimestamp").getValue(Long::class.java) ?: snapshot.child("createdAt").getValue(Long::class.java) ?: System.currentTimeMillis()
+
+        return Claim(
+            id = id,
+            organizationId = snapshot.child("organizationId").getValue(String::class.java) ?: "lpu_main_campus",
+            itemId = itemId,
+            itemTitle = itemTitle,
+            claimantId = claimantId,
+            claimantName = claimantName,
+            claimantContact = claimantContact,
+            itemOwnerOrFinderId = uploaderId,
+            verificationAnswer = snapshot.child("verificationAnswer").getValue(String::class.java) ?: "",
+            ownershipProofDetails = snapshot.child("ownershipProofDetails").getValue(String::class.java) ?: snapshot.child("claimDescription").getValue(String::class.java) ?: "",
+            claimDescription = snapshot.child("claimDescription").getValue(String::class.java) ?: "",
+            status = status,
+            createdAtTimestamp = created
+        )
+    }
+
+    override fun getAllClaims(): Flow<List<Claim>> {
+        return claimsStateFlow
+    }
 
     override suspend fun submitClaim(claim: Claim): Result<String> = withContext(dispatchers.io) {
         try {

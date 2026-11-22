@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.claimit.domain.model.ItemPost
 import com.example.claimit.domain.repository.AdminAuthState
+import com.example.claimit.domain.repository.AdminOverviewStats
 import com.example.claimit.presentation.admin.AdminDashboardScreen
 import com.example.claimit.presentation.admin.AdminViewModel
 import com.example.claimit.presentation.admin.ProtectedAdminRoute
@@ -257,28 +258,46 @@ fun ClaimItMainScreen(
                                     onRetryVerification = { adminViewModel?.verifySuperAdminClaims(true) },
                                     onReturnToStudentApp = { currentDestination = ClaimItNavDestination.FEED }
                                 ) {
+                                    val overviewStats by (adminViewModel?.overviewStats?.collectAsState() ?: remember { mutableStateOf(AdminOverviewStats()) })
+                                    val allItemPosts by (adminViewModel?.allItemPosts?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
+                                    val claimsList by (adminViewModel?.claimsList?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
+
                                     AdminDashboardScreen(
+                                        overviewStats = overviewStats,
+                                        allItemPosts = allItemPosts,
                                         reportedContentList = reportedQueue,
-                                        auditLogs = auditLogs,
                                         registeredUsers = registeredUsers,
+                                        claimsList = claimsList,
                                         activeDeviceSessions = activeDeviceSessions,
-                                        claimsList = incomingClaimsToReview,
+                                        auditLogs = auditLogs,
+                                        onHideReport = { itemId, reason ->
+                                            adminViewModel?.hideReport(itemId, reason)
+                                        },
+                                        onRestoreReport = { itemId ->
+                                            adminViewModel?.restoreReport(itemId)
+                                        },
+                                        onMarkReportNonGenuine = { itemId, reason ->
+                                            adminViewModel?.markReportNonGenuine(itemId, reason)
+                                        },
+                                        onPermanentlyDeleteReport = { itemId, reason, callback ->
+                                            if (adminViewModel != null) {
+                                                adminViewModel.permanentlyDeleteReport(itemId, reason, callback)
+                                            } else {
+                                                mainViewModel.adminRemoveListing(itemId, "PERMANENT_DELETE", reason) { success, msg ->
+                                                    callback(success, msg)
+                                                }
+                                            }
+                                        },
                                         onResolveReportWithDecision = { reportId, status, decision, explanation ->
                                             adminViewModel?.resolveReportWithDecision(reportId, status, decision, explanation)
                                                 ?: mainViewModel.adminResolveReportWithDecision(reportId, status, decision, explanation)
                                             Toast.makeText(context, "Moderation report resolved.", Toast.LENGTH_SHORT).show()
                                         },
-                                        onAdminRemoveListing = { itemId, reason, explanation ->
-                                            adminViewModel?.removeListing(itemId, reason, explanation)
-                                                ?: mainViewModel.adminRemoveListing(itemId, reason, explanation) { success, msg ->
-                                                    Toast.makeText(context, msg ?: "Listing removed.", Toast.LENGTH_SHORT).show()
-                                                }
+                                        onSuspendStudent = { uid, reason ->
+                                            adminViewModel?.suspendStudentAccount(uid, reason) ?: mainViewModel.suspendUserAccount(uid)
                                         },
-                                        onSuspendUser = { uid ->
-                                            adminViewModel?.suspendUserAccount(uid) ?: mainViewModel.suspendUserAccount(uid)
-                                        },
-                                        onUnsuspendUser = { uid ->
-                                            adminViewModel?.unsuspendUserAccount(uid) ?: mainViewModel.unsuspendUserAccount(uid)
+                                        onReactivateStudent = { uid ->
+                                            adminViewModel?.reactivateStudentAccount(uid) ?: mainViewModel.unsuspendUserAccount(uid)
                                         },
                                         onRevokeSession = { uid, sId ->
                                             adminViewModel?.revokeDeviceSession(uid, sId) ?: mainViewModel.revokeDeviceSession(uid, sId)

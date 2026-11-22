@@ -14,4 +14,6 @@ interface ImageStorageRepository {
     ): Result<ImageUploadResult>
 
     suspend fun getImage(fileId: String): Result<Bitmap>
+
+    suspend fun deleteImage(fileId: String): Result<Unit>
 }

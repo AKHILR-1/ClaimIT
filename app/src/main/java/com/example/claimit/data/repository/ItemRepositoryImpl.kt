@@ -297,6 +297,10 @@ class ItemRepositoryImpl(
         postsStateFlow.value.firstOrNull { it.id == id }
     }
 
+    override fun getAllItemPosts(): Flow<List<ItemPost>> {
+        return postsStateFlow
+    }
+
     override fun getRecentItemPosts(
         type: ItemType?,
         category: ItemCategory?,

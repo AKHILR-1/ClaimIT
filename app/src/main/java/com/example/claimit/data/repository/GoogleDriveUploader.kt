@@ -27,10 +27,6 @@ class GoogleDriveUploader {
 
     private val TAG = "GoogleDriveUploader"
 
-    /**
-     * Resizes bitmap to max 1280px dimension, compresses to 80% JPEG quality,
-     * enforces max 2MB size cap, converts to Base64, and uploads to Google Drive via Google Apps Script Web App.
-     */
     suspend fun uploadImage(bitmap: Bitmap): Result<GoogleDriveUploadResult> = withContext(Dispatchers.IO) {
         try {
             val backendUrl = BuildConfig.CLAIMIT_DRIVE_BACKEND_URL
@@ -40,7 +36,6 @@ class GoogleDriveUploader {
                 )
             }
 
-            // 1. Obtain Firebase Auth ID Token
             val idToken = getFirebaseIdToken()
             if (idToken.isNullOrBlank()) {
                 return@withContext Result.failure(
@@ -48,7 +43,6 @@ class GoogleDriveUploader {
                 )
             }
 
-            // 2. Preprocessing & Compression (Max 1280px, ~80% quality)
             val maxDimension = 1280
             val width = bitmap.width
             val height = bitmap.height
@@ -66,7 +60,6 @@ class GoogleDriveUploader {
             scaledBitmap.compress(Bitmap.CompressFormat.JPEG, quality, baos)
             var bytes = baos.toByteArray()
 
-            // Enforce max 2MB size cap
             val maxBytes = 2 * 1024 * 1024
             while (bytes.size > maxBytes && quality > 30) {
                 quality -= 10
@@ -85,7 +78,6 @@ class GoogleDriveUploader {
 
             val imageBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
 
-            // 3. Post JSON Request to Google Apps Script
             val requestJson = JSONObject().apply {
                 put("action", "upload")
                 put("idToken", idToken)
@@ -130,10 +122,6 @@ class GoogleDriveUploader {
         }
     }
 
-    /**
-     * Downloads image from Google Drive via Apps Script Web App using the getImage action.
-     * Decodes returned Base64 in memory and returns Bitmap.
-     */
     suspend fun getImage(fileId: String): Result<Bitmap> = withContext(Dispatchers.IO) {
         try {
             val backendUrl = BuildConfig.CLAIMIT_DRIVE_BACKEND_URL
@@ -175,6 +163,42 @@ class GoogleDriveUploader {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Google Drive getImage exception: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteImage(fileId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val backendUrl = BuildConfig.CLAIMIT_DRIVE_BACKEND_URL
+            if (backendUrl.isBlank() || fileId.isBlank()) {
+                return@withContext Result.failure(Exception("Invalid request: Missing backend URL or file ID."))
+            }
+
+            val idToken = getFirebaseIdToken()
+            if (idToken.isNullOrBlank()) {
+                return@withContext Result.failure(Exception("Authentication required: Missing ID token."))
+            }
+
+            val requestJson = JSONObject().apply {
+                put("action", "deleteImage")
+                put("idToken", idToken)
+                put("fileId", fileId)
+            }
+
+            val responseText = executeHttpPost(backendUrl, requestJson.toString())
+            val jsonResponse = JSONObject(responseText)
+
+            val isOk = jsonResponse.optBoolean("ok", false)
+            if (isOk) {
+                Log.i(TAG, "Google Drive photo deleted successfully: fileId=$fileId")
+                Result.success(Unit)
+            } else {
+                val errorMsg = jsonResponse.optString("error", "Google Drive deleteImage failed.")
+                Log.e(TAG, "Google Drive deleteImage failed: $errorMsg")
+                Result.failure(Exception("Google Drive deleteImage failed: $errorMsg"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Google Drive deleteImage exception: ${e.message}", e)
             Result.failure(e)
         }
     }
