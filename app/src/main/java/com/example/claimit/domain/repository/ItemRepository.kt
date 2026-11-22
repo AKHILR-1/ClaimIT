@@ -1,5 +1,6 @@
 package com.example.claimit.domain.repository
 
+import android.graphics.Bitmap
 import com.example.claimit.domain.model.ItemCategory
 import com.example.claimit.domain.model.ItemPost
 import com.example.claimit.domain.model.ItemType
@@ -7,6 +8,7 @@ import com.example.claimit.domain.model.PostStatus
 import kotlinx.coroutines.flow.Flow
 
 interface ItemRepository {
+    suspend fun uploadImage(bitmap: Bitmap): Result<ImageUploadResult>
     suspend fun createItemPost(post: ItemPost): Result<String>
     suspend fun updateItemPost(post: ItemPost): Result<Unit>
     suspend fun getItemPostById(id: String): ItemPost?
