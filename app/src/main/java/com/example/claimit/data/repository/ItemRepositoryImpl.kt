@@ -3,7 +3,6 @@ package com.example.claimit.data.repository
 import android.graphics.Bitmap
 import android.util.Log
 import com.example.claimit.core.dispatchers.CoroutineDispatchers
-import com.example.claimit.domain.model.AIVectorMetadata
 import com.example.claimit.domain.model.Building
 import com.example.claimit.domain.model.CampusLocation
 import com.example.claimit.domain.model.ItemCategory
@@ -11,25 +10,23 @@ import com.example.claimit.domain.model.ItemPost
 import com.example.claimit.domain.model.ItemType
 import com.example.claimit.domain.model.PhysicalAttributes
 import com.example.claimit.domain.model.PostStatus
+import com.example.claimit.domain.repository.ImageStorageRepository
+import com.example.claimit.domain.repository.ImageUploadResult
 import com.example.claimit.domain.repository.ItemRepository
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 
 class ItemRepositoryImpl(
     private val dispatchers: CoroutineDispatchers,
-    private val firestore: FirebaseFirestore? = try { FirebaseFirestore.getInstance() } catch (_: Exception) { null },
-    private val storage: FirebaseStorage? = try { FirebaseStorage.getInstance() } catch (_: Exception) { null },
+    private val imageStorageRepository: ImageStorageRepository = ImageStorageRepositoryImpl(),
     private val realtimeDatabase: FirebaseDatabase? = try {
         FirebaseDatabase.getInstance("https://claimit-322b5-default-rtdb.asia-southeast1.firebasedatabase.app")
     } catch (_: Exception) {
@@ -38,13 +35,11 @@ class ItemRepositoryImpl(
 ) : ItemRepository {
 
     private val TAG = "ItemRepository"
-    private val cloudinaryUploader = CloudinaryUploader()
     private val postsStateFlow = MutableStateFlow<List<ItemPost>>(emptyList())
     private val savedPostsUserMap = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
 
     init {
         listenToRealtimeDatabaseItems()
-        listenToFirestoreItems()
     }
 
     private fun listenToRealtimeDatabaseItems() {
@@ -70,7 +65,31 @@ class ItemRepositoryImpl(
                     }
 
                     override fun onCancelled(error: DatabaseError) {
-                        Log.w(TAG, "RTDB item listener cancelled: ${error.message}")
+                        Log.w(TAG, "RTDB org items listener cancelled: ${error.message}")
+                    }
+                })
+
+            rtdb.reference.child("items")
+                .addValueEventListener(object : ValueEventListener {
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        if (snapshot.exists()) {
+                            val rtdbPosts = mutableListOf<ItemPost>()
+                            for (child in snapshot.children) {
+                                try {
+                                    val post = parseItemSnapshot(child) ?: continue
+                                    rtdbPosts.add(post)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error parsing RTDB global item child: ${e.message}")
+                                }
+                            }
+                            if (rtdbPosts.isNotEmpty()) {
+                                updatePostsList(rtdbPosts)
+                            }
+                        }
+                    }
+
+                    override fun onCancelled(error: DatabaseError) {
+                        Log.w(TAG, "RTDB global items listener cancelled: ${error.message}")
                     }
                 })
         } catch (e: Exception) {
@@ -78,85 +97,8 @@ class ItemRepositoryImpl(
         }
     }
 
-    private fun listenToFirestoreItems() {
-        val db = firestore ?: return
-        try {
-            db.collection("organizations")
-                .document("lpu_main_campus")
-                .collection("items")
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        Log.w(TAG, "Firestore item snapshot listener error: ${error.message}")
-                        return@addSnapshotListener
-                    }
-                    if (snapshot != null && !snapshot.isEmpty) {
-                        val remotePosts = mutableListOf<ItemPost>()
-                        for (doc in snapshot.documents) {
-                            try {
-                                val title = doc.getString("title") ?: continue
-                                val typeStr = doc.getString("type") ?: ItemType.LOST.name
-                                val categoryStr = doc.getString("category") ?: ItemCategory.OTHER.name
-                                val statusStr = doc.getString("status") ?: PostStatus.ACTIVE.name
-
-                                val type = try { ItemType.valueOf(typeStr) } catch (_: Exception) { ItemType.LOST }
-                                val category = try { ItemCategory.valueOf(categoryStr) } catch (_: Exception) { ItemCategory.OTHER }
-                                val status = try { PostStatus.valueOf(statusStr) } catch (_: Exception) { PostStatus.ACTIVE }
-
-                                @Suppress("UNCHECKED_CAST")
-                                val imageUrlsList = (doc.get("imageUrls") as? List<String>) ?: emptyList()
-
-                                val post = ItemPost(
-                                    id = doc.id,
-                                    trackingCode = doc.getString("trackingCode") ?: "CLM-${doc.id.take(6).uppercase()}",
-                                    organizationId = doc.getString("organizationId") ?: "lpu_main_campus",
-                                    userId = doc.getString("userId") ?: "user_student_1",
-                                    userDisplayName = doc.getString("userDisplayName") ?: "Campus Member",
-                                    title = title,
-                                    description = doc.getString("description") ?: "",
-                                    type = type,
-                                    category = category,
-                                    location = CampusLocation(
-                                        building = Building(
-                                            id = doc.getString("buildingId") ?: "bld_15",
-                                            code = doc.getString("buildingCode") ?: "15",
-                                            name = doc.getString("buildingName") ?: "Campus Center",
-                                            zoneName = doc.getString("zoneName") ?: "Central",
-                                            landmarkName = doc.getString("buildingDesc") ?: ""
-                                        ),
-                                        floorWing = doc.getString("floorWing") ?: "",
-                                        microLocationDetails = doc.getString("microLocation") ?: ""
-                                    ),
-                                    physicalAttributes = PhysicalAttributes(
-                                        dominantColor = doc.getString("dominantColor") ?: "",
-                                        material = doc.getString("material") ?: "",
-                                        condition = doc.getString("condition") ?: "",
-                                        distinguishingFeatures = doc.getString("distinguishingFeatures") ?: ""
-                                    ),
-                                    aiMetadata = null,
-                                    acceptedTags = emptyList(),
-                                    imageUrls = imageUrlsList,
-                                    createdAtTimestamp = doc.getLong("createdAtTimestamp") ?: System.currentTimeMillis(),
-                                    status = status,
-                                    finderOrOwnerContact = doc.getString("contact") ?: "contact@campus.edu",
-                                    actionTakenRemarks = doc.getString("remarks") ?: ""
-                                )
-                                remotePosts.add(post)
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error parsing Firestore item document: ${e.message}")
-                            }
-                        }
-                        if (remotePosts.isNotEmpty()) {
-                            updatePostsList(remotePosts)
-                        }
-                    }
-                }
-        } catch (e: Exception) {
-            Log.w(TAG, "Exception initializing Firestore item snapshot listener: ${e.message}")
-        }
-    }
-
     private fun parseItemSnapshot(snapshot: DataSnapshot): ItemPost? {
-        val id = snapshot.key ?: snapshot.child("id").getValue(String::class.java) ?: return null
+        val id = snapshot.key ?: snapshot.child("id").getValue(String::class.java) ?: snapshot.child("itemId").getValue(String::class.java) ?: return null
         val title = snapshot.child("title").getValue(String::class.java) ?: return null
         val typeStr = snapshot.child("type").getValue(String::class.java) ?: ItemType.LOST.name
         val categoryStr = snapshot.child("category").getValue(String::class.java) ?: ItemCategory.OTHER.name
@@ -174,18 +116,18 @@ class ItemRepositoryImpl(
             }
         }
 
-        val publicIdsList = mutableListOf<String>()
-        val pubArr = snapshot.child("cloudinaryPublicIds")
-        if (pubArr.exists()) {
-            for (pub in pubArr.children) {
-                pub.getValue(String::class.java)?.let { publicIdsList.add(it) }
+        val imageFileIdsList = mutableListOf<String>()
+        val fileIdArr = snapshot.child("imageFileIds")
+        if (fileIdArr.exists()) {
+            for (fid in fileIdArr.children) {
+                fid.getValue(String::class.java)?.let { imageFileIdsList.add(it) }
             }
         }
 
         return ItemPost(
             id = id,
             trackingCode = snapshot.child("trackingCode").getValue(String::class.java) ?: "CLM-${id.take(6).uppercase()}",
-            organizationId = snapshot.child("organizationId").getValue(String::class.java) ?: "lpu_main_campus",
+            organizationId = snapshot.child("organizationId").getValue(String::class.java) ?: snapshot.child("collegeId").getValue(String::class.java) ?: "lpu_main_campus",
             userId = snapshot.child("userId").getValue(String::class.java) ?: snapshot.child("ownerUid").getValue(String::class.java) ?: "user_student_1",
             userDisplayName = snapshot.child("userDisplayName").getValue(String::class.java) ?: "Campus Member",
             title = title,
@@ -212,7 +154,7 @@ class ItemRepositoryImpl(
             aiMetadata = null,
             acceptedTags = emptyList(),
             imageUrls = imageUrlsList,
-            cloudinaryPublicIds = publicIdsList,
+            imageFileIds = imageFileIdsList,
             createdAtTimestamp = snapshot.child("createdAtTimestamp").getValue(Long::class.java)
                 ?: snapshot.child("createdAt").getValue(Long::class.java)
                 ?: System.currentTimeMillis(),
@@ -230,21 +172,18 @@ class ItemRepositoryImpl(
         postsStateFlow.value = sorted
     }
 
-    /**
-     * Uploads bitmap directly to Cloudinary using unsigned HTTP multipart request.
-     * Scale to max 1280px, compresses to JPEG 80% quality, caps size at 2MB.
-     * Returns Cloudinary secure_url and public_id.
-     */
-    suspend fun uploadBitmapToCloudinary(bitmap: Bitmap): Result<CloudinaryUploadResult> {
-        return cloudinaryUploader.uploadImage(bitmap)
+    override suspend fun uploadImage(bitmap: Bitmap): Result<ImageUploadResult> {
+        return imageStorageRepository.uploadImage(bitmap)
     }
 
     override suspend fun createItemPost(post: ItemPost): Result<String> = withContext(dispatchers.io) {
         try {
             val itemMap = mapOf(
                 "id" to post.id,
+                "itemId" to post.id,
                 "trackingCode" to post.trackingCode,
                 "organizationId" to post.organizationId,
+                "collegeId" to post.organizationId,
                 "userId" to post.userId,
                 "ownerUid" to post.userId,
                 "userDisplayName" to post.userDisplayName,
@@ -265,7 +204,7 @@ class ItemRepositoryImpl(
                 "distinguishingFeatures" to post.physicalAttributes.distinguishingFeatures,
                 "acceptedTags" to post.acceptedTags,
                 "imageUrls" to post.imageUrls,
-                "cloudinaryPublicIds" to post.cloudinaryPublicIds,
+                "imageFileIds" to post.imageFileIds,
                 "status" to post.status.name,
                 "contact" to post.finderOrOwnerContact,
                 "remarks" to post.actionTakenRemarks,
@@ -274,9 +213,13 @@ class ItemRepositoryImpl(
                 "updatedAt" to ServerValue.TIMESTAMP
             )
 
-            // Write to Realtime Database
-            realtimeDatabase?.let { rtdb ->
+            val primaryPath = "organizations/${post.organizationId}/items/${post.id}"
+            Log.i(TAG, "DIAGNOSTIC - RTDB Report Write Started: op=CREATE_REPORT, path=$primaryPath, uid=${post.userId}, collegeId=${post.organizationId}")
+
+            val rtdb = realtimeDatabase
+            if (rtdb != null) {
                 try {
+                    // Primary write: /organizations/{organizationId}/items/{itemId}
                     rtdb.reference.child("organizations")
                         .child(post.organizationId)
                         .child("items")
@@ -284,26 +227,21 @@ class ItemRepositoryImpl(
                         .setValue(itemMap)
                         .await()
 
+                    Log.i(TAG, "DIAGNOSTIC - RTDB Primary Write Success: path=$primaryPath, uid=${post.userId}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "DIAGNOSTIC - RTDB Primary Write Failed: path=$primaryPath, uid=${post.userId}, error=${e.message}", e)
+                    throw e
+                }
+
+                // Secondary write: /items/{itemId}
+                try {
                     rtdb.reference.child("items")
                         .child(post.id)
                         .setValue(itemMap)
                         .await()
+                    Log.i(TAG, "DIAGNOSTIC - RTDB Secondary Write Success: path=items/${post.id}")
                 } catch (e: Exception) {
-                    Log.w(TAG, "RTDB write for item ${post.id} failed: ${e.message}")
-                }
-            }
-
-            // Write to Firestore
-            firestore?.let { db ->
-                try {
-                    db.collection("organizations")
-                        .document(post.organizationId)
-                        .collection("items")
-                        .document(post.id)
-                        .set(itemMap)
-                        .await()
-                } catch (e: Exception) {
-                    Log.w(TAG, "Firestore write for item ${post.id} failed: ${e.message}")
+                    Log.w(TAG, "DIAGNOSTIC - RTDB Secondary Write Warning: path=items/${post.id}, warning=${e.message}")
                 }
             }
 
@@ -312,7 +250,7 @@ class ItemRepositoryImpl(
             postsStateFlow.value = updated.sortedByDescending { it.createdAtTimestamp }
             Result.success(post.id)
         } catch (e: Exception) {
-            Log.e(TAG, "Create item post exception: ${e.message}", e)
+            Log.e(TAG, "Create item post failed: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -341,24 +279,6 @@ class ItemRepositoryImpl(
                         .await()
                 } catch (e: Exception) {
                     Log.w(TAG, "RTDB update item ${post.id} error: ${e.message}")
-                }
-            }
-
-            firestore?.let { db ->
-                try {
-                    db.collection("organizations")
-                        .document(post.organizationId)
-                        .collection("items")
-                        .document(post.id)
-                        .update(
-                            mapOf(
-                                "title" to post.title,
-                                "description" to post.description,
-                                "microLocation" to post.location.microLocationDetails
-                            )
-                        )
-                } catch (e: Exception) {
-                    Log.w(TAG, "Firestore update item ${post.id} error: ${e.message}")
                 }
             }
 
@@ -433,17 +353,6 @@ class ItemRepositoryImpl(
                         Log.w(TAG, "RTDB status update error: ${e.message}")
                     }
                 }
-                firestore?.let { db ->
-                    try {
-                        db.collection("organizations")
-                            .document(it.organizationId)
-                            .collection("items")
-                            .document(id)
-                            .update("status", status.name)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Firestore status update error: ${e.message}")
-                    }
-                }
                 newPost
             } else it
         }
@@ -467,17 +376,6 @@ class ItemRepositoryImpl(
                         .removeValue()
                 } catch (e: Exception) {
                     Log.w(TAG, "RTDB delete post error: ${e.message}")
-                }
-            }
-            firestore?.let { db ->
-                try {
-                    db.collection("organizations")
-                        .document(target.organizationId)
-                        .collection("items")
-                        .document(id)
-                        .delete()
-                } catch (e: Exception) {
-                    Log.w(TAG, "Firestore delete post error: ${e.message}")
                 }
             }
         }
