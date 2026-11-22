@@ -11,7 +11,6 @@ import com.example.claimit.domain.repository.ItemRepository
 import com.example.claimit.domain.repository.NotificationRepository
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
-import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -26,8 +25,7 @@ class ClaimRepositoryImpl(
         FirebaseDatabase.getInstance("https://claimit-322b5-default-rtdb.asia-southeast1.firebasedatabase.app")
     } catch (_: Exception) {
         try { FirebaseDatabase.getInstance() } catch (_: Exception) { null }
-    },
-    private val firestore: FirebaseFirestore? = try { FirebaseFirestore.getInstance() } catch (_: Exception) { null }
+    }
 ) : ClaimRepository {
 
     private val TAG = "ClaimRepository"
@@ -70,27 +68,6 @@ class ClaimRepositoryImpl(
                     rtdb.reference.child("claims").child(claim.id).setValue(claimMap).await()
                 } catch (e: Exception) {
                     Log.w(TAG, "RTDB write for claim ${claim.id} error: ${e.message}")
-                }
-            }
-
-            // Persist to Firestore
-            firestore?.let { db ->
-                try {
-                    val firestoreMap = mapOf(
-                        "id" to claim.id,
-                        "organizationId" to claim.organizationId,
-                        "itemId" to claim.itemId,
-                        "itemTitle" to claim.itemTitle,
-                        "claimantUid" to claim.claimantId,
-                        "uploaderUid" to claim.itemOwnerOrFinderId,
-                        "verificationAnswer" to claim.verificationAnswer,
-                        "ownershipProofDetails" to claim.ownershipProofDetails,
-                        "status" to claim.status.name,
-                        "createdAt" to System.currentTimeMillis()
-                    )
-                    db.collection("claims").document(claim.id).set(firestoreMap).await()
-                } catch (e: Exception) {
-                    Log.w(TAG, "Firestore write for claim ${claim.id} error: ${e.message}")
                 }
             }
 
@@ -173,22 +150,6 @@ class ClaimRepositoryImpl(
                         rtdb.reference.child("claims").child(claimId).updateChildren(updates).await()
                     } catch (e: Exception) {
                         Log.w(TAG, "RTDB status update error: ${e.message}")
-                    }
-                }
-
-                // Update Firestore
-                firestore?.let { db ->
-                    try {
-                        db.collection("claims").document(claimId).update(
-                            mapOf(
-                                "status" to status.name,
-                                "reviewerId" to reviewerId,
-                                "reviewNotes" to reviewNotes,
-                                "updatedAt" to System.currentTimeMillis()
-                            )
-                        )
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Firestore claim status update error: ${e.message}")
                     }
                 }
 
