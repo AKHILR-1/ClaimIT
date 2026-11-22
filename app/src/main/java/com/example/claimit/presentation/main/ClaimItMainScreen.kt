@@ -203,7 +203,10 @@ fun ClaimItMainScreen(
                                 )
                             }
                             ClaimItNavDestination.REPORT -> {
-                                PostCreationScreen(viewModel = postCreationViewModel)
+                                PostCreationScreen(
+                                    viewModel = postCreationViewModel,
+                                    onNavigateToFeed = { currentDestination = ClaimItNavDestination.FEED }
+                                )
                             }
                             ClaimItNavDestination.MY_REPORTS -> {
                                 com.example.claimit.presentation.reports.MyReportsScreen(

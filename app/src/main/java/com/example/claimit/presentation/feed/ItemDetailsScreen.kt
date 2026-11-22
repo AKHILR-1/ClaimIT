@@ -120,9 +120,11 @@ fun ItemDetailsScreen(
 
         // SECTION A — ITEM PHOTOGRAPHS (1–3 Images)
         item {
-            if (post.imageUrls.size <= 1) {
+            val totalImages = maxOf(post.imageUrls.size, post.imageFileIds.size)
+            if (totalImages <= 1) {
                 com.example.claimit.presentation.feed.components.ReportImageThumbnail(
                     imageUrl = post.imageUrls.firstOrNull(),
+                    imageFileId = post.imageFileIds.firstOrNull(),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(220.dp)
@@ -133,9 +135,13 @@ fun ItemDetailsScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(post.imageUrls) { url ->
+                    val count = maxOf(post.imageUrls.size, post.imageFileIds.size)
+                    items(count) { index ->
+                        val url = post.imageUrls.getOrNull(index)
+                        val fileId = post.imageFileIds.getOrNull(index)
                         com.example.claimit.presentation.feed.components.ReportImageThumbnail(
                             imageUrl = url,
+                            imageFileId = fileId,
                             modifier = Modifier
                                 .width(280.dp)
                                 .height(220.dp)
