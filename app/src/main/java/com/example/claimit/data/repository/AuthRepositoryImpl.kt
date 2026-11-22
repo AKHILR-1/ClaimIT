@@ -15,8 +15,6 @@ import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,7 +28,6 @@ import java.util.UUID
 class AuthRepositoryImpl(
     private val dispatchers: CoroutineDispatchers,
     private val firebaseAuth: FirebaseAuth? = try { FirebaseAuth.getInstance() } catch (_: Exception) { null },
-    private val firestore: FirebaseFirestore? = try { FirebaseFirestore.getInstance() } catch (_: Exception) { null },
     private val realtimeDatabase: FirebaseDatabase? = try {
         FirebaseDatabase.getInstance("https://claimit-322b5-default-rtdb.asia-southeast1.firebasedatabase.app")
     } catch (_: Exception) {
@@ -95,7 +92,6 @@ class AuthRepositoryImpl(
         val email = fbUser.email ?: ""
         val isVerified = fbUser.isEmailVerified
 
-        // Attempt retrieval from Realtime Database first under users/{uid}
         val rtdb = realtimeDatabase
         if (rtdb != null) {
             try {
@@ -117,6 +113,30 @@ class AuthRepositoryImpl(
                             val roleStr = snapshot.child("role").getValue(String::class.java) ?: UserRole.STUDENT.name
                             val role = try { UserRole.valueOf(roleStr) } catch (_: Exception) { UserRole.STUDENT }
 
+                            val orgId = snapshot.child("organizationId").getValue(String::class.java)
+                                ?: snapshot.child("collegeId").getValue(String::class.java)
+                                ?: "lpu_main_campus"
+
+                            // Sync organizationId & collegeId under /users/{uid} and /memberships/{uid} in RTDB
+                            try {
+                                val userUpdates = mapOf<String, Any>(
+                                    "organizationId" to orgId,
+                                    "collegeId" to orgId
+                                )
+                                rtdb.reference.child("users").child(fbUser.uid).updateChildren(userUpdates)
+
+                                val membershipMap = mapOf<String, Any>(
+                                    "collegeId" to orgId,
+                                    "organizationId" to orgId,
+                                    "verified" to isVerified,
+                                    "role" to role.name,
+                                    "updatedAt" to ServerValue.TIMESTAMP
+                                )
+                                rtdb.reference.child("memberships").child(fbUser.uid).setValue(membershipMap)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to sync membership record in RTDB: ${e.message}")
+                            }
+
                             val user = User(
                                 id = fbUser.uid,
                                 email = contactEmail,
@@ -127,52 +147,10 @@ class AuthRepositoryImpl(
                                 contactEmailVerified = contactEmailVerified,
                                 studentId = studentReg,
                                 registrationNumber = studentReg,
-                                organizationId = "lpu_main_campus",
+                                organizationId = orgId,
                                 role = role,
                                 status = AccountStatus.VERIFIED,
                                 isEmailVerified = collegeEmailVerified || isVerified,
-                                photoUrl = fbUser.photoUrl?.toString() ?: ""
-                            )
-                            _currentUserState.value = user
-                        } else {
-                            fetchFirestoreOrFallback(fbUser)
-                        }
-                    }
-                    .addOnFailureListener { e ->
-                        Log.w(TAG, "Realtime Database profile fetch failed: ${e.message}, falling back")
-                        fetchFirestoreOrFallback(fbUser)
-                    }
-            } catch (e: Exception) {
-                Log.w(TAG, "Exception during Realtime Database profile fetch: ${e.message}")
-                fetchFirestoreOrFallback(fbUser)
-            }
-        } else {
-            fetchFirestoreOrFallback(fbUser)
-        }
-    }
-
-    private fun fetchFirestoreOrFallback(fbUser: FirebaseUser) {
-        val email = fbUser.email ?: ""
-        val isVerified = fbUser.isEmailVerified
-
-        val db = firestore
-        if (db != null) {
-            try {
-                db.collection("users").document(fbUser.uid).get()
-                    .addOnSuccessListener { doc ->
-                        if (doc != null && doc.exists()) {
-                            val roleStr = doc.getString("role") ?: UserRole.STUDENT.name
-                            val role = try { UserRole.valueOf(roleStr) } catch (_: Exception) { UserRole.STUDENT }
-                            val user = User(
-                                id = fbUser.uid,
-                                email = email,
-                                displayName = doc.getString("displayName") ?: doc.getString("fullName") ?: fbUser.displayName ?: email.substringBefore("@"),
-                                collegeEmail = doc.getString("collegeEmail") ?: email,
-                                studentId = doc.getString("studentId") ?: doc.getString("studentRegistrationNumber") ?: "",
-                                organizationId = doc.getString("organizationId") ?: "lpu_main_campus",
-                                role = role,
-                                status = AccountStatus.VERIFIED,
-                                isEmailVerified = isVerified,
                                 photoUrl = fbUser.photoUrl?.toString() ?: ""
                             )
                             _currentUserState.value = user
@@ -181,11 +159,11 @@ class AuthRepositoryImpl(
                         }
                     }
                     .addOnFailureListener { e ->
-                        Log.w(TAG, "Firestore user profile fetch failed, using fallback profile: ${e.message}")
+                        Log.w(TAG, "Realtime Database profile fetch failed: ${e.message}, using fallback profile")
                         _currentUserState.value = buildFallbackUser(fbUser)
                     }
             } catch (e: Exception) {
-                Log.w(TAG, "Exception during user profile fetch: ${e.message}")
+                Log.w(TAG, "Exception during Realtime Database profile fetch: ${e.message}")
                 _currentUserState.value = buildFallbackUser(fbUser)
             }
         } else {
@@ -251,7 +229,7 @@ class AuthRepositoryImpl(
                     Log.w(TAG, "Email verification link dispatch deferred: ${e.message}")
                 }
 
-                // 1. REALTIME DATABASE PERSISTENCE (under users/{uid})
+                // 1. REALTIME DATABASE PERSISTENCE (under users/{uid} and memberships/{uid})
                 val rtdbMap = mapOf(
                     "fullName" to name.trim().ifBlank { cleanCollegeEmail.substringBefore("@") },
                     "collegeEmail" to cleanCollegeEmail,
@@ -261,6 +239,17 @@ class AuthRepositoryImpl(
                     "contactEmail" to cleanCollegeEmail,
                     "contactEmailVerified" to fbUser.isEmailVerified,
                     "role" to assignedRole.name,
+                    "organizationId" to "lpu_main_campus",
+                    "collegeId" to "lpu_main_campus",
+                    "createdAt" to ServerValue.TIMESTAMP,
+                    "updatedAt" to ServerValue.TIMESTAMP
+                )
+
+                val membershipMap = mapOf(
+                    "collegeId" to "lpu_main_campus",
+                    "organizationId" to "lpu_main_campus",
+                    "verified" to fbUser.isEmailVerified,
+                    "role" to assignedRole.name,
                     "createdAt" to ServerValue.TIMESTAMP,
                     "updatedAt" to ServerValue.TIMESTAMP
                 )
@@ -269,52 +258,10 @@ class AuthRepositoryImpl(
                 if (rtdb != null) {
                     try {
                         rtdb.reference.child("users").child(fbUser.uid).setValue(rtdbMap).await()
-                        Log.i(TAG, "Successfully saved user profile in Firebase Realtime Database at users/${fbUser.uid}")
+                        rtdb.reference.child("memberships").child(fbUser.uid).setValue(membershipMap).await()
+                        Log.i(TAG, "Successfully saved user profile and membership in Firebase Realtime Database at users/${fbUser.uid}")
                     } catch (e: Exception) {
-                        Log.e(TAG, "Failed to save profile in Realtime Database: ${e.message}", e)
-                        try {
-                            fbUser.delete().await()
-                        } catch (delEx: Exception) {
-                            Log.w(TAG, "Failed to delete Auth user after RTDB error: ${delEx.message}")
-                        }
-                        val userErrMsg = if (e.message?.contains("Permission denied", ignoreCase = true) == true) {
-                            "Permission denied: Realtime Database security rules prevent saving profile. Please check rules in Firebase Console."
-                        } else {
-                            "Failed to save user profile in Realtime Database: ${e.localizedMessage}"
-                        }
-                        return@withContext Result.failure(Exception(userErrMsg))
-                    }
-                } else {
-                    Log.e(TAG, "Realtime Database instance is null during registration.")
-                    try {
-                        fbUser.delete().await()
-                    } catch (_: Exception) {}
-                    return@withContext Result.failure(Exception("Failed to initialize Realtime Database. Please check network connection and database configuration."))
-                }
-
-                // 2. FIRESTORE PERSISTENCE (Backup/Secondary sync)
-                val userMap = mapOf(
-                    "uid" to fbUser.uid,
-                    "id" to fbUser.uid,
-                    "fullName" to name.trim().ifBlank { cleanEmail.substringBefore("@") },
-                    "displayName" to name.trim().ifBlank { cleanEmail.substringBefore("@") },
-                    "email" to cleanEmail,
-                    "collegeEmail" to cleanCollegeEmail,
-                    "studentRegistrationNumber" to studentId.trim(),
-                    "studentId" to studentId.trim(),
-                    "organizationId" to "lpu_main_campus",
-                    "role" to assignedRole.name,
-                    "status" to AccountStatus.VERIFIED.name,
-                    "emailVerified" to fbUser.isEmailVerified,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-
-                firestore?.let { db ->
-                    try {
-                        db.collection("users").document(fbUser.uid).set(userMap).await()
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Firestore user profile document creation warning: ${e.message}")
+                        Log.w(TAG, "Realtime Database profile creation error: ${e.message}", e)
                     }
                 }
 
@@ -391,13 +338,17 @@ class AuthRepositoryImpl(
                             val roleStr = snapshot.child("role").getValue(String::class.java) ?: UserRole.STUDENT.name
                             val role = try { UserRole.valueOf(roleStr) } catch (_: Exception) { UserRole.STUDENT }
 
+                            val orgId = snapshot.child("organizationId").getValue(String::class.java)
+                                ?: snapshot.child("collegeId").getValue(String::class.java)
+                                ?: "lpu_main_campus"
+
                             User(
                                 id = fbUser.uid,
                                 email = cleanEmail,
                                 displayName = fullName,
                                 collegeEmail = cleanEmail,
                                 studentId = studentReg,
-                                organizationId = "lpu_main_campus",
+                                organizationId = orgId,
                                 role = role,
                                 status = AccountStatus.VERIFIED,
                                 isEmailVerified = fbUser.isEmailVerified,
@@ -479,6 +430,7 @@ class AuthRepositoryImpl(
                             "updatedAt" to ServerValue.TIMESTAMP
                         )
                         rtdb.reference.child("users").child(fbUser.uid).updateChildren(updates).await()
+                        rtdb.reference.child("memberships").child(fbUser.uid).child("verified").setValue(true).await()
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to update verification status in RTDB: ${e.message}")
                     }
@@ -603,37 +555,52 @@ class AuthRepositoryImpl(
         deviceName: String,
         isAdmin: Boolean
     ): Result<String> = withContext(dispatchers.io) {
+        val sessionId = "session_${UUID.randomUUID()}"
         try {
             val rtdb = realtimeDatabase
-            val sessionId = "session_${UUID.randomUUID()}"
+            val auth = firebaseAuth
 
             if (rtdb != null && userId.isNotBlank()) {
-                val sessionsRef = rtdb.reference.child("deviceSessions").child(userId)
-                val snapshot = sessionsRef.get().await()
+                // Skip remote RTDB queries if user is not authenticated in Firebase Auth
+                if (auth != null && auth.currentUser == null) {
+                    Log.w(TAG, "Firebase Auth current user is null, returning local session $sessionId")
+                    return@withContext Result.success(sessionId)
+                }
 
-                if (isAdmin) {
-                    var activeCount = 0
-                    if (snapshot.exists()) {
+                val sessionsRef = rtdb.reference.child("deviceSessions").child(userId)
+
+                var snapshot: DataSnapshot? = null
+                try {
+                    snapshot = sessionsRef.get().await()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to fetch device sessions from Realtime Database: ${e.message}")
+                }
+
+                if (snapshot != null && snapshot.exists()) {
+                    if (isAdmin) {
+                        var activeCount = 0
                         for (child in snapshot.children) {
                             val isActive = child.child("isActive").getValue(Boolean::class.java) ?: false
                             if (isActive) activeCount++
                         }
-                    }
-                    if (activeCount >= 3) {
-                        return@withContext Result.failure(
-                            Exception("Maximum admin device limit reached. ClaimIT admin access is already active on three devices. Sign out from an existing device to continue.")
-                        )
-                    }
-                } else {
-                    // Student: revoke all previous active sessions to maintain ONE device limit
-                    if (snapshot.exists()) {
+                        if (activeCount >= 3) {
+                            return@withContext Result.failure(
+                                Exception("Maximum admin device limit reached. ClaimIT admin access is already active on three devices. Sign out from an existing device to continue.")
+                            )
+                        }
+                    } else {
+                        // Student: revoke all previous active sessions to maintain ONE device limit
                         val updates = mutableMapOf<String, Any>()
                         for (child in snapshot.children) {
                             val childId = child.key ?: continue
                             updates["$childId/isActive"] = false
                         }
                         if (updates.isNotEmpty()) {
-                            sessionsRef.updateChildren(updates).await()
+                            try {
+                                sessionsRef.updateChildren(updates).await()
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to revoke previous active sessions in RTDB: ${e.message}")
+                            }
                         }
                     }
                 }
@@ -648,13 +615,17 @@ class AuthRepositoryImpl(
                     "lastActive" to ServerValue.TIMESTAMP
                 )
 
-                sessionsRef.child(sessionId).setValue(sessionMap).await()
+                try {
+                    sessionsRef.child(sessionId).setValue(sessionMap).await()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to save device session in RTDB: ${e.message}")
+                }
             }
 
             Result.success(sessionId)
         } catch (e: Exception) {
-            Log.e(TAG, "Register session failed: ${e.message}", e)
-            Result.failure(e)
+            Log.w(TAG, "Register session failed (falling back to local session $sessionId): ${e.message}")
+            Result.success(sessionId)
         }
     }
 
@@ -885,15 +856,6 @@ class AuthRepositoryImpl(
                     }
                 }
 
-                // Update Firestore
-                firestore?.let { db ->
-                    try {
-                        db.collection("users").document(fbUser.uid).update(updates).await()
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Firestore profile update failed: ${e.message}")
-                    }
-                }
-
                 val current = _currentUserState.value
                 val updated = current?.copy(
                     displayName = displayName.ifBlank { current.displayName },
@@ -926,15 +888,9 @@ class AuthRepositoryImpl(
                 realtimeDatabase?.let { rtdb ->
                     try {
                         rtdb.reference.child("users").child(fbUser.uid).removeValue().await()
+                        rtdb.reference.child("memberships").child(fbUser.uid).removeValue().await()
                     } catch (e: Exception) {
                         Log.w(TAG, "Realtime Database user deletion failed: ${e.message}")
-                    }
-                }
-                firestore?.let { db ->
-                    try {
-                        db.collection("users").document(fbUser.uid).delete().await()
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Firestore user document deletion failed: ${e.message}")
                     }
                 }
                 fbUser.delete().await()
