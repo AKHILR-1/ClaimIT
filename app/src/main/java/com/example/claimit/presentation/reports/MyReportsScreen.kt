@@ -303,6 +303,7 @@ private fun MyReportCard(
             ) {
                 com.example.claimit.presentation.feed.components.ReportImageThumbnail(
                     imageUrl = post.imageUrls.firstOrNull(),
+                    imageFileId = post.imageFileIds.firstOrNull(),
                     modifier = Modifier
                         .size(64.dp)
                         .clip(RoundedCornerShape(8.dp))

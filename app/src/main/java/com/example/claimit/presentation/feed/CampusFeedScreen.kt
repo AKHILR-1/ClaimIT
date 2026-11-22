@@ -297,6 +297,7 @@ private fun MinimalCampusReportCard(
             // 1. Item Photograph Thumbnail
             com.example.claimit.presentation.feed.components.ReportImageThumbnail(
                 imageUrl = post.imageUrls.firstOrNull(),
+                imageFileId = post.imageFileIds.firstOrNull(),
                 modifier = Modifier
                     .size(72.dp)
                     .clip(RoundedCornerShape(8.dp))
