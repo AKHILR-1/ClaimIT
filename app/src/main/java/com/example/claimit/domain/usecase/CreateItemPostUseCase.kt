@@ -26,7 +26,7 @@ class CreateItemPostUseCase(
         aiMetadata: AIVectorMetadata?,
         acceptedTags: List<String>,
         imageUrls: List<String>,
-        cloudinaryPublicIds: List<String> = emptyList(),
+        imageFileIds: List<String> = emptyList(),
         contactInfo: String,
         actionTakenRemarks: String = "",
         userId: String = "user_student_1",
@@ -37,7 +37,9 @@ class CreateItemPostUseCase(
     ): Result<String> {
         if (title.isBlank()) return Result.failure(IllegalArgumentException("Title cannot be empty"))
         if (contactInfo.isBlank()) return Result.failure(IllegalArgumentException("Contact info cannot be empty"))
-        if (imageUrls.isEmpty()) return Result.failure(IllegalArgumentException("Please upload at least one photograph of the item before publishing your report."))
+        if (imageUrls.isEmpty() && imageFileIds.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Please upload at least one photograph of the item before publishing your report."))
+        }
 
         val uuid = UUID.randomUUID().toString()
         val trackingCode = "CLM-" + uuid.take(6).uppercase()
@@ -57,7 +59,7 @@ class CreateItemPostUseCase(
             aiMetadata = aiMetadata,
             acceptedTags = acceptedTags,
             imageUrls = imageUrls,
-            cloudinaryPublicIds = cloudinaryPublicIds,
+            imageFileIds = imageFileIds,
             createdAtTimestamp = System.currentTimeMillis(),
             status = PostStatus.ACTIVE,
             finderOrOwnerContact = contactInfo.trim(),
