@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.claimit.core.dispatchers.CoroutineDispatchers
-import com.example.claimit.data.repository.ItemRepositoryImpl
 import com.example.claimit.domain.model.AttributeType
 import com.example.claimit.domain.model.Building
 import com.example.claimit.domain.model.DetectedAttribute
@@ -301,12 +300,18 @@ class PostCreationViewModel(
         val currentState = _uiState.value
         val location = currentState.selectedLocation
 
+        _uiState.update { it.copy(submissionStatus = ReportSubmissionStatus.VALIDATING, isSubmitting = true, errorMessage = null, uploadProgressMessage = "Validating report data...") }
         android.util.Log.i("ClaimIT_Submission", "STAGE: VALIDATION_STARTED")
 
         if (currentState.capturedBitmaps.isEmpty()) {
             android.util.Log.w("ClaimIT_Submission", "STAGE: SUBMISSION_FAILED reason=NO_PHOTO")
             _uiState.update { state ->
-                state.copy(errorMessage = "Photo Required: Please upload at least one photograph of the item before publishing your report.")
+                state.copy(
+                    submissionStatus = ReportSubmissionStatus.ERROR,
+                    isSubmitting = false,
+                    uploadProgressMessage = null,
+                    errorMessage = "Photo Required: Please upload at least one photograph of the item before publishing your report."
+                )
             }
             return
         }
@@ -314,63 +319,100 @@ class PostCreationViewModel(
         if (!currentState.isFormValid || location == null) {
             android.util.Log.w("ClaimIT_Submission", "STAGE: SUBMISSION_FAILED reason=INVALID_FORM")
             _uiState.update { state ->
-                state.copy(errorMessage = "Please fill in all required fields (title, location building, photo, and contact info).")
+                state.copy(
+                    submissionStatus = ReportSubmissionStatus.ERROR,
+                    isSubmitting = false,
+                    uploadProgressMessage = null,
+                    errorMessage = "Please fill in all required fields (title, location building, photo, and contact info)."
+                )
             }
             return
         }
 
-        android.util.Log.i("ClaimIT_Submission", "STAGE: VALIDATION_SUCCESS")
-
         val currentUser = authRepository?.currentUserState?.value
         val fbUser = try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
-        val userId = currentUser?.id ?: fbUser?.uid ?: "user_${System.currentTimeMillis()}"
+        val authenticatedUid = fbUser?.uid ?: currentUser?.id
+
+        if (authenticatedUid.isNullOrBlank()) {
+            android.util.Log.e("ClaimIT_Submission", "STAGE: SUBMISSION_FAILED reason=UNAUTHENTICATED")
+            _uiState.update { state ->
+                state.copy(
+                    submissionStatus = ReportSubmissionStatus.ERROR,
+                    isSubmitting = false,
+                    uploadProgressMessage = null,
+                    errorMessage = "Authentication Required: Please sign in with your student account before publishing a report."
+                )
+            }
+            return
+        }
+
+        val userId = authenticatedUid
         val userDisplayName = currentUser?.displayName ?: fbUser?.displayName ?: "Campus Member"
         val orgId = currentUser?.organizationId ?: "lpu_main_campus"
 
+        android.util.Log.i("ClaimIT_Submission", "STAGE: VALIDATION_SUCCESS uid=$userId org=$orgId")
+
         viewModelScope.launch(dispatchers.default) {
-            _uiState.update { it.copy(isSubmitting = true, uploadProgressMessage = "Preparing report...") }
+            _uiState.update {
+                it.copy(
+                    submissionStatus = ReportSubmissionStatus.UPLOADING_IMAGES,
+                    isSubmitting = true,
+                    uploadProgressMessage = "Preparing images for upload..."
+                )
+            }
 
             val uploadedUrls = mutableListOf<String>()
-            val uploadedPublicIds = mutableListOf<String>()
+            val uploadedFileIds = mutableListOf<String>()
             val bitmaps = currentState.capturedBitmaps.take(3)
             var uploadFailed = false
             var uploadFailureReason = ""
 
             android.util.Log.i("ClaimIT_Submission", "STAGE: IMAGE_UPLOAD_STARTED count=${bitmaps.size}")
 
-            if (bitmaps.isNotEmpty() && itemRepository is ItemRepositoryImpl) {
+            if (bitmaps.isNotEmpty() && itemRepository != null) {
                 for ((index, bitmap) in bitmaps.withIndex()) {
-                    _uiState.update { it.copy(uploadProgressMessage = "Uploading photo ${index + 1} of ${bitmaps.size} to Cloudinary...") }
-                    val uploadResult = itemRepository.uploadBitmapToCloudinary(bitmap)
+                    _uiState.update {
+                        it.copy(
+                            submissionStatus = ReportSubmissionStatus.UPLOADING_IMAGES,
+                            uploadProgressMessage = "Uploading photo ${index + 1} of ${bitmaps.size} to Google Drive..."
+                        )
+                    }
+                    val uploadResult = itemRepository.uploadImage(bitmap)
                     uploadResult.onSuccess { res ->
-                        uploadedUrls.add(res.secureUrl)
-                        uploadedPublicIds.add(res.publicId)
+                        uploadedUrls.add(res.imageUrl)
+                        if (res.fileId.isNotBlank()) {
+                            uploadedFileIds.add(res.fileId)
+                        }
                     }.onFailure { err ->
                         uploadFailed = true
-                        uploadFailureReason = err.localizedMessage ?: "Cloudinary image upload failed"
-                        android.util.Log.e("ClaimIT_Submission", "Cloudinary photo ${index + 1} upload failed: ${err.message}")
+                        uploadFailureReason = err.localizedMessage ?: "Image upload failed"
+                        android.util.Log.e("ClaimIT_Submission", "Photo ${index + 1} upload failed: ${err.message}")
                     }
                     if (uploadFailed) break
                 }
             }
 
-            if (uploadFailed || uploadedUrls.isEmpty()) {
-                android.util.Log.e("ClaimIT_Submission", "STAGE: SUBMISSION_FAILED reason=CLOUDINARY_UPLOAD_FAILED err=$uploadFailureReason")
+            if (uploadFailed || (uploadedUrls.isEmpty() && uploadedFileIds.isEmpty())) {
+                android.util.Log.e("ClaimIT_Submission", "STAGE: SUBMISSION_FAILED reason=IMAGE_UPLOAD_FAILED err=$uploadFailureReason")
                 _uiState.update { state ->
                     state.copy(
+                        submissionStatus = ReportSubmissionStatus.ERROR,
                         isSubmitting = false,
                         uploadProgressMessage = null,
-                        errorMessage = if (uploadFailureReason.isNotBlank()) "Photo Upload Failed: $uploadFailureReason. Please retry." else "Image upload failed. Please re-select the photograph and try again."
+                        errorMessage = if (uploadFailureReason.isNotBlank()) "Photo Upload Failed: $uploadFailureReason" else "Image upload failed. Please re-select the photograph and try again."
                     )
                 }
                 return@launch
             }
 
-            android.util.Log.i("ClaimIT_Submission", "STAGE: IMAGE_UPLOAD_SUCCESS urls=${uploadedUrls.size}")
+            android.util.Log.i("ClaimIT_Submission", "STAGE: IMAGE_UPLOAD_SUCCESS urls=${uploadedUrls.size} fileIds=${uploadedFileIds.size}")
 
-            _uiState.update { it.copy(uploadProgressMessage = "Publishing report to campus database...") }
-            val tempId = "post_${UUID.randomUUID()}"
-            android.util.Log.i("ClaimIT_Submission", "STAGE: DATABASE_SAVE_STARTED itemId=$tempId")
+            _uiState.update {
+                it.copy(
+                    submissionStatus = ReportSubmissionStatus.SAVING_REPORT,
+                    uploadProgressMessage = "Saving report to Firebase Realtime Database..."
+                )
+            }
 
             val result = createItemPostUseCase(
                 title = currentState.title,
@@ -382,7 +424,7 @@ class PostCreationViewModel(
                 aiMetadata = currentState.aiMetadata,
                 acceptedTags = currentState.acceptedTags,
                 imageUrls = uploadedUrls,
-                cloudinaryPublicIds = uploadedPublicIds,
+                imageFileIds = uploadedFileIds,
                 contactInfo = currentState.contactInfo,
                 actionTakenRemarks = currentState.actionTakenRemarks,
                 userId = userId,
@@ -396,6 +438,7 @@ class PostCreationViewModel(
 
                 _uiState.update { state ->
                     state.copy(
+                        submissionStatus = ReportSubmissionStatus.SUCCESS,
                         isSubmitting = false,
                         uploadProgressMessage = null,
                         createdPostId = postId,
@@ -418,9 +461,10 @@ class PostCreationViewModel(
                 android.util.Log.e("ClaimIT_Submission", "STAGE: SUBMISSION_FAILED err=${error.message}")
                 _uiState.update { state ->
                     state.copy(
+                        submissionStatus = ReportSubmissionStatus.ERROR,
                         isSubmitting = false,
                         uploadProgressMessage = null,
-                        errorMessage = "Failed to submit post: ${error.localizedMessage}"
+                        errorMessage = "Report Persistence Failed: ${error.localizedMessage ?: "Realtime Database error"}. Please retry."
                     )
                 }
             }
