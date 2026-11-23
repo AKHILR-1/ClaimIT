@@ -387,7 +387,7 @@ private fun Step1Overview(
             OutlinedTextField(
                 value = uiState.title,
                 onValueChange = { viewModel.onIntent(PostCreationIntent.UpdateTitle(it)) },
-                placeholder = { Text("Title (e.g. AirPods Pro 2 in White Charging Case)") },
+                placeholder = { Text("Item title (e.g. White AirPods Pro)") },
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -401,7 +401,7 @@ private fun Step1Overview(
             OutlinedTextField(
                 value = uiState.description,
                 onValueChange = { viewModel.onIntent(PostCreationIntent.UpdateDescription(it)) },
-                placeholder = { Text("Describe specific markings, condition, where found or lost...") },
+                placeholder = { Text("Describe condition or specific markings") },
                 minLines = 3,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -496,7 +496,7 @@ private fun Step2CategoryAndTags(
                 OutlinedTextField(
                     value = uiState.customCategoryTag,
                     onValueChange = { viewModel.onIntent(PostCreationIntent.UpdateCustomCategoryTag(it)) },
-                    placeholder = { Text("Enter custom item tag (e.g. Helmet, Badminton Racket, Umbrella, Calculator...)") },
+                    placeholder = { Text("Specify custom item tag") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -559,7 +559,7 @@ private fun Step2CategoryAndTags(
             OutlinedTextField(
                 value = uiState.physicalAttributes.distinguishingFeatures,
                 onValueChange = { viewModel.onIntent(PostCreationIntent.UpdateDistinguishingFeatures(it)) },
-                label = { Text("Distinguishing Features (Scratches, Stickers...)") },
+                label = { Text("Distinguishing features") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -617,7 +617,7 @@ private fun Step3LocationAndContact(
             OutlinedTextField(
                 value = uiState.actionTakenRemarks,
                 onValueChange = { viewModel.onIntent(PostCreationIntent.UpdateActionTakenRemarks(it)) },
-                placeholder = { Text("e.g. Submitted in Block 31 Security Office, AO Office, Main Gate Desk...") },
+                placeholder = { Text("e.g. Submitted at Block 31 Security Office") },
                 minLines = 2,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -645,7 +645,7 @@ private fun Step3LocationAndContact(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "CONTACT INFO FOR VERIFICATION & RECOVERY",
+                    text = "CONTACT INFO FOR RECOVERY",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
@@ -657,7 +657,7 @@ private fun Step3LocationAndContact(
             OutlinedTextField(
                 value = uiState.contactInfo,
                 onValueChange = { viewModel.onIntent(PostCreationIntent.UpdateContactInfo(it)) },
-                placeholder = { Text("Campus email or phone number...") },
+                placeholder = { Text("Campus email or phone number") },
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,

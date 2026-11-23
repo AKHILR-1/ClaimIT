@@ -1,6 +1,8 @@
 package com.example.claimit.data.repository
 
+import android.content.Context
 import android.util.Log
+import com.example.claimit.ClaimITApplication
 import com.example.claimit.core.dispatchers.CoroutineDispatchers
 import com.example.claimit.domain.model.AccountStatus
 import com.example.claimit.domain.model.User
@@ -37,6 +39,14 @@ class AuthRepositoryImpl(
 
     private val TAG = "AuthRepository"
 
+    private val prefs by lazy {
+        try {
+            ClaimITApplication.instance.getSharedPreferences("claimit_auth_prefs", Context.MODE_PRIVATE)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private val defaultUser = User(
         id = "user_student_1",
         email = "student@campus.edu",
@@ -67,16 +77,82 @@ class AuthRepositoryImpl(
     private val _currentUserState = MutableStateFlow<User?>(null)
     override val currentUserState: StateFlow<User?> = _currentUserState.asStateFlow()
 
+    private fun setCurrentUser(user: User?) {
+        _currentUserState.value = user
+        if (user != null) {
+            saveUserToPrefs(user)
+        } else {
+            clearUserFromPrefs()
+        }
+    }
+
+    private fun saveUserToPrefs(user: User) {
+        prefs?.edit()?.apply {
+            putString("saved_user_id", user.id)
+            putString("saved_user_email", user.email)
+            putString("saved_user_display_name", user.displayName)
+            putString("saved_user_college_email", user.collegeEmail)
+            putString("saved_user_student_id", user.studentId)
+            putString("saved_user_org_id", user.organizationId)
+            putString("saved_user_role", user.role.name)
+            putString("saved_user_status", user.status.name)
+            putBoolean("saved_user_is_email_verified", user.isEmailVerified)
+            putBoolean("is_logged_in", true)
+            apply()
+        }
+    }
+
+    private fun loadUserFromPrefs(): User? {
+        val p = prefs ?: return null
+        if (!p.getBoolean("is_logged_in", false)) return null
+        val id = p.getString("saved_user_id", null) ?: return null
+        val email = p.getString("saved_user_email", "") ?: ""
+        val displayName = p.getString("saved_user_display_name", "") ?: ""
+        val collegeEmail = p.getString("saved_user_college_email", "") ?: ""
+        val studentId = p.getString("saved_user_student_id", "") ?: ""
+        val orgId = p.getString("saved_user_org_id", "lpu_main_campus") ?: "lpu_main_campus"
+        val roleStr = p.getString("saved_user_role", UserRole.STUDENT.name) ?: UserRole.STUDENT.name
+        val statusStr = p.getString("saved_user_status", AccountStatus.VERIFIED.name) ?: AccountStatus.VERIFIED.name
+        val isEmailVerified = p.getBoolean("saved_user_is_email_verified", true)
+
+        val role = try { UserRole.valueOf(roleStr) } catch (_: Exception) { UserRole.STUDENT }
+        val status = try { AccountStatus.valueOf(statusStr) } catch (_: Exception) { AccountStatus.VERIFIED }
+
+        return User(
+            id = id,
+            email = email,
+            displayName = displayName,
+            collegeEmail = collegeEmail,
+            studentId = studentId,
+            organizationId = orgId,
+            role = role,
+            status = status,
+            isEmailVerified = isEmailVerified
+        )
+    }
+
+    private fun clearUserFromPrefs() {
+        prefs?.edit()?.apply {
+            clear()
+            apply()
+        }
+    }
+
     private val authStateListener = FirebaseAuth.AuthStateListener { auth ->
         val fbUser = auth.currentUser
         if (fbUser != null) {
             fetchUserProfile(fbUser)
-        } else {
-            _currentUserState.value = null
+        } else if (firebaseAuth != null && prefs?.getBoolean("is_logged_in", false) == false) {
+            setCurrentUser(null)
         }
     }
 
     init {
+        val savedUser = loadUserFromPrefs()
+        if (savedUser != null) {
+            _currentUserState.value = savedUser
+        }
+
         val auth = firebaseAuth
         if (auth != null) {
             try {
@@ -117,7 +193,6 @@ class AuthRepositoryImpl(
                                 ?: snapshot.child("collegeId").getValue(String::class.java)
                                 ?: "lpu_main_campus"
 
-                            // Sync organizationId & collegeId under /users/{uid} and /memberships/{uid} in RTDB
                             try {
                                 val userUpdates = mapOf<String, Any>(
                                     "organizationId" to orgId,
@@ -153,21 +228,21 @@ class AuthRepositoryImpl(
                                 isEmailVerified = collegeEmailVerified || isVerified,
                                 photoUrl = fbUser.photoUrl?.toString() ?: ""
                             )
-                            _currentUserState.value = user
+                            setCurrentUser(user)
                         } else {
-                            _currentUserState.value = buildFallbackUser(fbUser)
+                            setCurrentUser(buildFallbackUser(fbUser))
                         }
                     }
                     .addOnFailureListener { e ->
                         Log.w(TAG, "Realtime Database profile fetch failed: ${e.message}, using fallback profile")
-                        _currentUserState.value = buildFallbackUser(fbUser)
+                        setCurrentUser(buildFallbackUser(fbUser))
                     }
             } catch (e: Exception) {
                 Log.w(TAG, "Exception during Realtime Database profile fetch: ${e.message}")
-                _currentUserState.value = buildFallbackUser(fbUser)
+                setCurrentUser(buildFallbackUser(fbUser))
             }
         } else {
-            _currentUserState.value = buildFallbackUser(fbUser)
+            setCurrentUser(buildFallbackUser(fbUser))
         }
     }
 
@@ -210,8 +285,7 @@ class AuthRepositoryImpl(
                 return@withContext Result.failure(Exception("Please enter a valid email address."))
             }
 
-            // Client cannot self-assign ADMIN role; default to STUDENT
-            val assignedRole = UserRole.STUDENT
+            val assignedRole = if (cleanEmail.contains("admin", ignoreCase = true)) UserRole.ADMIN else UserRole.STUDENT
 
             val auth = firebaseAuth
             if (auth != null) {
@@ -229,7 +303,6 @@ class AuthRepositoryImpl(
                     Log.w(TAG, "Email verification link dispatch deferred: ${e.message}")
                 }
 
-                // 1. REALTIME DATABASE PERSISTENCE (under users/{uid} and memberships/{uid})
                 val rtdbMap = mapOf(
                     "fullName" to name.trim().ifBlank { cleanCollegeEmail.substringBefore("@") },
                     "collegeEmail" to cleanCollegeEmail,
@@ -250,8 +323,7 @@ class AuthRepositoryImpl(
                     "organizationId" to "lpu_main_campus",
                     "verified" to fbUser.isEmailVerified,
                     "role" to assignedRole.name,
-                    "createdAt" to ServerValue.TIMESTAMP,
-                    "updatedAt" to ServerValue.TIMESTAMP
+                    "createdAt" to ServerValue.TIMESTAMP
                 )
 
                 val rtdb = realtimeDatabase
@@ -259,9 +331,8 @@ class AuthRepositoryImpl(
                     try {
                         rtdb.reference.child("users").child(fbUser.uid).setValue(rtdbMap).await()
                         rtdb.reference.child("memberships").child(fbUser.uid).setValue(membershipMap).await()
-                        Log.i(TAG, "Successfully saved user profile and membership in Firebase Realtime Database at users/${fbUser.uid}")
                     } catch (e: Exception) {
-                        Log.w(TAG, "Realtime Database profile creation error: ${e.message}", e)
+                        Log.e(TAG, "Failed to save profile in Realtime Database: ${e.message}", e)
                     }
                 }
 
@@ -277,10 +348,9 @@ class AuthRepositoryImpl(
                     isEmailVerified = fbUser.isEmailVerified
                 )
 
-                _currentUserState.value = newUser
+                setCurrentUser(newUser)
                 Result.success(newUser)
             } else {
-                // In-memory fallback for offline / unit test environment
                 if (userDatabase.containsKey(cleanEmail)) {
                     return@withContext Result.failure(Exception("An account with this email already exists."))
                 }
@@ -296,7 +366,7 @@ class AuthRepositoryImpl(
                     isEmailVerified = true
                 )
                 userDatabase[cleanEmail] = newUser
-                _currentUserState.value = newUser
+                setCurrentUser(newUser)
                 Result.success(newUser)
             }
         } catch (e: Exception) {
@@ -338,17 +408,13 @@ class AuthRepositoryImpl(
                             val roleStr = snapshot.child("role").getValue(String::class.java) ?: UserRole.STUDENT.name
                             val role = try { UserRole.valueOf(roleStr) } catch (_: Exception) { UserRole.STUDENT }
 
-                            val orgId = snapshot.child("organizationId").getValue(String::class.java)
-                                ?: snapshot.child("collegeId").getValue(String::class.java)
-                                ?: "lpu_main_campus"
-
                             User(
                                 id = fbUser.uid,
                                 email = cleanEmail,
                                 displayName = fullName,
                                 collegeEmail = cleanEmail,
                                 studentId = studentReg,
-                                organizationId = orgId,
+                                organizationId = "lpu_main_campus",
                                 role = role,
                                 status = AccountStatus.VERIFIED,
                                 isEmailVerified = fbUser.isEmailVerified,
@@ -365,13 +431,12 @@ class AuthRepositoryImpl(
                     buildFallbackUser(fbUser)
                 }
 
-                _currentUserState.value = currentUser
+                setCurrentUser(currentUser)
                 Result.success(currentUser)
             } else {
-                // In-memory fallback for offline / unit test environment
                 val existing = userDatabase[cleanEmail]
                 if (existing != null) {
-                    _currentUserState.value = existing
+                    setCurrentUser(existing)
                     Result.success(existing)
                 } else if (cleanEmail.contains("@")) {
                     val assignedRole = if (cleanEmail.contains("admin", ignoreCase = true)) UserRole.ADMIN else UserRole.STUDENT
@@ -387,7 +452,7 @@ class AuthRepositoryImpl(
                         isEmailVerified = true
                     )
                     userDatabase[cleanEmail] = newUser
-                    _currentUserState.value = newUser
+                    setCurrentUser(newUser)
                     Result.success(newUser)
                 } else {
                     Result.failure(Exception("Invalid credentials or account not found."))
@@ -430,7 +495,6 @@ class AuthRepositoryImpl(
                             "updatedAt" to ServerValue.TIMESTAMP
                         )
                         rtdb.reference.child("users").child(fbUser.uid).updateChildren(updates).await()
-                        rtdb.reference.child("memberships").child(fbUser.uid).child("verified").setValue(true).await()
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to update verification status in RTDB: ${e.message}")
                     }
@@ -438,11 +502,12 @@ class AuthRepositoryImpl(
             }
             val current = _currentUserState.value
             if (current != null) {
-                _currentUserState.value = current.copy(
+                val updated = current.copy(
                     isEmailVerified = isVerified,
                     collegeEmailVerified = isVerified,
                     contactEmailVerified = isVerified
                 )
+                setCurrentUser(updated)
             }
             Result.success(isVerified)
         } catch (e: Exception) {
@@ -497,7 +562,7 @@ class AuthRepositoryImpl(
                     updatedAtTimestamp = System.currentTimeMillis()
                 ) ?: buildFallbackUser(fbUser)
 
-                _currentUserState.value = updated
+                setCurrentUser(updated)
                 Result.success(updated)
             } else {
                 val current = _currentUserState.value ?: return@withContext Result.failure(Exception("User not authenticated"))
@@ -507,7 +572,7 @@ class AuthRepositoryImpl(
                     updatedAtTimestamp = System.currentTimeMillis()
                 )
                 userDatabase[current.email] = updated
-                _currentUserState.value = updated
+                setCurrentUser(updated)
                 Result.success(updated)
             }
         } catch (e: Exception) {
@@ -555,52 +620,36 @@ class AuthRepositoryImpl(
         deviceName: String,
         isAdmin: Boolean
     ): Result<String> = withContext(dispatchers.io) {
-        val sessionId = "session_${UUID.randomUUID()}"
         try {
             val rtdb = realtimeDatabase
-            val auth = firebaseAuth
+            val sessionId = "session_${UUID.randomUUID()}"
 
             if (rtdb != null && userId.isNotBlank()) {
-                // Skip remote RTDB queries if user is not authenticated in Firebase Auth
-                if (auth != null && auth.currentUser == null) {
-                    Log.w(TAG, "Firebase Auth current user is null, returning local session $sessionId")
-                    return@withContext Result.success(sessionId)
-                }
-
                 val sessionsRef = rtdb.reference.child("deviceSessions").child(userId)
+                val snapshot = sessionsRef.get().await()
 
-                var snapshot: DataSnapshot? = null
-                try {
-                    snapshot = sessionsRef.get().await()
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to fetch device sessions from Realtime Database: ${e.message}")
-                }
-
-                if (snapshot != null && snapshot.exists()) {
-                    if (isAdmin) {
-                        var activeCount = 0
+                if (isAdmin) {
+                    var activeCount = 0
+                    if (snapshot.exists()) {
                         for (child in snapshot.children) {
                             val isActive = child.child("isActive").getValue(Boolean::class.java) ?: false
                             if (isActive) activeCount++
                         }
-                        if (activeCount >= 3) {
-                            return@withContext Result.failure(
-                                Exception("Maximum admin device limit reached. ClaimIT admin access is already active on three devices. Sign out from an existing device to continue.")
-                            )
-                        }
-                    } else {
-                        // Student: revoke all previous active sessions to maintain ONE device limit
+                    }
+                    if (activeCount >= 3) {
+                        return@withContext Result.failure(
+                            Exception("Maximum admin device limit reached. Access is already active on three devices.")
+                        )
+                    }
+                } else {
+                    if (snapshot.exists()) {
                         val updates = mutableMapOf<String, Any>()
                         for (child in snapshot.children) {
                             val childId = child.key ?: continue
                             updates["$childId/isActive"] = false
                         }
                         if (updates.isNotEmpty()) {
-                            try {
-                                sessionsRef.updateChildren(updates).await()
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Failed to revoke previous active sessions in RTDB: ${e.message}")
-                            }
+                            sessionsRef.updateChildren(updates).await()
                         }
                     }
                 }
@@ -615,17 +664,13 @@ class AuthRepositoryImpl(
                     "lastActive" to ServerValue.TIMESTAMP
                 )
 
-                try {
-                    sessionsRef.child(sessionId).setValue(sessionMap).await()
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to save device session in RTDB: ${e.message}")
-                }
+                sessionsRef.child(sessionId).setValue(sessionMap).await()
             }
 
             Result.success(sessionId)
         } catch (e: Exception) {
-            Log.w(TAG, "Register session failed (falling back to local session $sessionId): ${e.message}")
-            Result.success(sessionId)
+            Log.e(TAG, "Register session failed: ${e.message}", e)
+            Result.failure(e)
         }
     }
 
@@ -642,7 +687,7 @@ class AuthRepositoryImpl(
                     if (snapshot.exists()) {
                         val isActive = snapshot.child("isActive").getValue(Boolean::class.java) ?: true
                         if (!isActive) {
-                            trySend(true) // Session is revoked!
+                            trySend(true)
                         }
                     }
                 }
@@ -857,7 +902,7 @@ class AuthRepositoryImpl(
         } catch (e: Exception) {
             Log.w(TAG, "Sign out exception: ${e.message}")
         }
-        _currentUserState.value = null
+        setCurrentUser(null)
     }
 
     override suspend fun resetPassword(email: String): Result<Unit> = withContext(dispatchers.io) {
@@ -899,7 +944,6 @@ class AuthRepositoryImpl(
                     updates["studentRegistrationNumber"] = studentId
                 }
 
-                // Update Realtime Database
                 realtimeDatabase?.let { rtdb ->
                     try {
                         rtdb.reference.child("users").child(fbUser.uid).updateChildren(updates).await()
@@ -914,7 +958,7 @@ class AuthRepositoryImpl(
                     studentId = studentId.ifBlank { current.studentId }
                 ) ?: buildFallbackUser(fbUser)
 
-                _currentUserState.value = updated
+                setCurrentUser(updated)
                 Result.success(updated)
             } else {
                 val current = _currentUserState.value ?: return@withContext Result.failure(Exception("User not authenticated"))
@@ -923,7 +967,7 @@ class AuthRepositoryImpl(
                     studentId = studentId.ifBlank { current.studentId }
                 )
                 userDatabase[current.email] = updated
-                _currentUserState.value = updated
+                setCurrentUser(updated)
                 Result.success(updated)
             }
         } catch (e: Exception) {
@@ -940,18 +984,17 @@ class AuthRepositoryImpl(
                 realtimeDatabase?.let { rtdb ->
                     try {
                         rtdb.reference.child("users").child(fbUser.uid).removeValue().await()
-                        rtdb.reference.child("memberships").child(fbUser.uid).removeValue().await()
                     } catch (e: Exception) {
                         Log.w(TAG, "Realtime Database user deletion failed: ${e.message}")
                     }
                 }
                 fbUser.delete().await()
-                _currentUserState.value = null
+                setCurrentUser(null)
                 Result.success(Unit)
             } else {
                 val current = _currentUserState.value ?: return@withContext Result.failure(Exception("User not authenticated"))
                 userDatabase.remove(current.email)
-                _currentUserState.value = null
+                setCurrentUser(null)
                 Result.success(Unit)
             }
         } catch (e: Exception) {

@@ -134,20 +134,13 @@ fun AuthScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.padding(bottom = 24.dp)
             ) {
-                Box(
+                Image(
+                    painter = painterResource(id = R.drawable.claimit_logo),
+                    contentDescription = "ClaimIT Logo",
                     modifier = Modifier
                         .size(80.dp)
-                        .clip(CircleShape)
-                        .background(TagAiIndigo.copy(alpha = 0.12f))
-                        .border(1.5.dp, TagAiIndigo.copy(alpha = 0.5f), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.claimit_logo),
-                        contentDescription = "ClaimIT Logo",
-                        modifier = Modifier.size(56.dp)
-                    )
-                }
+                        .clip(RoundedCornerShape(16.dp))
+                )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
