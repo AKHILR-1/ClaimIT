@@ -73,7 +73,7 @@ fun MicroLocationPicker(
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = "GRANULAR CAMPUS GEOSPATIAL INDEX",
+                text = "CAMPUS LOCATION",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold
@@ -84,7 +84,7 @@ fun MicroLocationPicker(
 
         // Step 1: Building Selection (Fuzzy search)
         Text(
-            text = "1. Campus Building / Landmark",
+            text = "1. Campus Building / Block",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -98,7 +98,7 @@ fun MicroLocationPicker(
             },
             placeholder = {
                 Text(
-                    text = "Search building code or landmark (e.g. 15 Uni Mall, 25 CSE, Hospital, Others)...",
+                    text = "Search building name or block...",
                     style = MaterialTheme.typography.bodyMedium
                 )
             },
@@ -183,7 +183,7 @@ fun MicroLocationPicker(
         if (selectedBuilding?.id == "bld_others") {
             Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = "Specify Custom Building / Landmark Name",
+                text = "Specify Custom Building / Landmark",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold
@@ -195,7 +195,7 @@ fun MicroLocationPicker(
                 onValueChange = onCustomBuildingNameChanged,
                 placeholder = {
                     Text(
-                        text = "Enter custom building/location (e.g. Near Solar Plant, Playground Gate 3...)",
+                        text = "Enter custom location or building name",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 },
@@ -212,7 +212,7 @@ fun MicroLocationPicker(
         if (selectedBuilding != null) {
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "2. Mention Floor / Wing Level",
+                text = "2. Floor / Wing Level",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -223,7 +223,7 @@ fun MicroLocationPicker(
                 onValueChange = onFloorWingChanged,
                 placeholder = {
                     Text(
-                        text = "Enter floor level (e.g. Ground Floor, 2nd Floor, 3rd Floor East Wing...)",
+                        text = "e.g. Ground Floor, 2nd Floor",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 },
@@ -238,7 +238,7 @@ fun MicroLocationPicker(
             // Step 3: Specific Micro-Location Text Input Box
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "3. Micro-Location Details",
+                text = "3. Specific Spot / Micro-Location",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -249,7 +249,7 @@ fun MicroLocationPicker(
                 onValueChange = onMicroLocationChanged,
                 placeholder = {
                     Text(
-                        text = "e.g., Quiet Study Pod #4, Bench next to vending machine, Rm 204...",
+                        text = "e.g. Room 204, Bench near entrance",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 },
