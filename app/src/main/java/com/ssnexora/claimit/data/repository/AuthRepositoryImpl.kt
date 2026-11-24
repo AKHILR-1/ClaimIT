@@ -305,7 +305,7 @@ class AuthRepositoryImpl(
                     Log.w(TAG, "Email verification link dispatch deferred: ${e.message}")
                 }
 
-                // 3. Create Realtime Database profile under /users/{fbUser.uid} using actual UID
+                // 3. Create Realtime Database profile under /users/{fbUser.uid} using actual UID (role field omitted for server-side provisioning)
                 val rtdbMap = mapOf(
                     "fullName" to name.trim().ifBlank { cleanCollegeEmail.substringBefore("@") },
                     "collegeEmail" to cleanCollegeEmail,
@@ -314,7 +314,6 @@ class AuthRepositoryImpl(
                     "studentRegistrationNumber" to studentId.trim(),
                     "contactEmail" to cleanCollegeEmail,
                     "contactEmailVerified" to fbUser.isEmailVerified,
-                    "role" to assignedRole.name,
                     "organizationId" to "lpu_main_campus",
                     "collegeId" to "lpu_main_campus",
                     "createdAt" to ServerValue.TIMESTAMP,
@@ -325,7 +324,6 @@ class AuthRepositoryImpl(
                     "collegeId" to "lpu_main_campus",
                     "organizationId" to "lpu_main_campus",
                     "verified" to fbUser.isEmailVerified,
-                    "role" to assignedRole.name,
                     "createdAt" to ServerValue.TIMESTAMP
                 )
 
