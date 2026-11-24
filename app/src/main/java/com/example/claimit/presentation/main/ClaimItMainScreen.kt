@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -45,7 +43,6 @@ import com.example.claimit.presentation.auth.EmailVerificationScreen
 import com.example.claimit.presentation.claims.ClaimsScreen
 import com.example.claimit.presentation.feed.CampusFeedScreen
 import com.example.claimit.presentation.feed.ItemDetailsScreen
-import com.example.claimit.presentation.matches.VectorMatchesScreen
 import com.example.claimit.presentation.navigation.ClaimItNavDestination
 import com.example.claimit.presentation.notifications.NotificationsSheet
 import com.example.claimit.presentation.postcreation.PostCreationScreen
@@ -76,7 +73,6 @@ fun ClaimItMainScreen(
     val userNotifications by mainViewModel.userNotifications.collectAsState()
     val unreadCount by mainViewModel.unreadNotificationCount.collectAsState()
 
-    val postUiState by postCreationViewModel.uiState.collectAsState()
     val mySubmittedClaims by mainViewModel.mySubmittedClaims.collectAsState()
     val incomingClaimsToReview by mainViewModel.incomingClaimsToReview.collectAsState()
     val reportedQueue by mainViewModel.reportedQueue.collectAsState()
@@ -136,7 +132,6 @@ fun ClaimItMainScreen(
             bottomBar = {
                 ClaimItBottomMenu(
                     currentDestination = currentDestination,
-                    matchCount = postUiState.duplicateMatches.size,
                     userRole = currentUser.role,
                     onDestinationSelected = { destination ->
                         viewingDetailsPost = null
@@ -219,9 +214,6 @@ fun ClaimItMainScreen(
                                         mainViewModel.editReport(post)
                                     }
                                 )
-                            }
-                            ClaimItNavDestination.MATCHES -> {
-                                VectorMatchesScreen(viewModel = postCreationViewModel)
                             }
                             ClaimItNavDestination.CLAIMS -> {
                                 ClaimsScreen(
@@ -330,7 +322,6 @@ fun ClaimItMainScreen(
 @Composable
 private fun ClaimItBottomMenu(
     currentDestination: ClaimItNavDestination,
-    matchCount: Int,
     userRole: UserRole,
     onDestinationSelected: (ClaimItNavDestination) -> Unit
 ) {
@@ -356,34 +347,11 @@ private fun ClaimItBottomMenu(
                 selected = isSelected,
                 onClick = { onDestinationSelected(destination) },
                 icon = {
-                    if (destination == ClaimItNavDestination.MATCHES && matchCount > 0) {
-                        BadgedBox(
-                            badge = {
-                                Badge(
-                                    containerColor = StatusPendingAmber,
-                                    contentColor = MaterialTheme.colorScheme.surface
-                                ) {
-                                    Text(
-                                        text = matchCount.toString(),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 10.sp
-                                    )
-                                }
-                            }
-                        ) {
-                            Icon(
-                                imageVector = destination.icon,
-                                contentDescription = destination.title,
-                                tint = if (isSelected) TagAiIndigo else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else {
-                        Icon(
-                            imageVector = destination.icon,
-                            contentDescription = destination.title,
-                            tint = if (isSelected) TagAiIndigo else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Icon(
+                        imageVector = destination.icon,
+                        contentDescription = destination.title,
+                        tint = if (isSelected) TagAiIndigo else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 },
                 label = {
                     Text(
