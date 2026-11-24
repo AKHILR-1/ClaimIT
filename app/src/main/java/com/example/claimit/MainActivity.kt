@@ -113,7 +113,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            var isDarkTheme by rememberSaveable { mutableStateOf(true) }
+            var isDarkTheme by rememberSaveable { mutableStateOf(false) } // Default Light Theme
 
             ClaimITTheme(darkTheme = isDarkTheme) {
                 Surface(modifier = Modifier.fillMaxSize()) {

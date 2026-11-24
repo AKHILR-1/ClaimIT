@@ -13,6 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+google-services.json
+app/google-services.json
 scripts/serviceAccountKey.json
 scripts/node_modules/
 scripts/.superadmin_setup_instructions.txt

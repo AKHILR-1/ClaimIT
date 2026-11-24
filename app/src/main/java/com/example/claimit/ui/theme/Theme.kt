@@ -51,7 +51,7 @@ private val LightEditorialColorScheme = lightColorScheme(
 
 @Composable
 fun ClaimITTheme(
-    darkTheme: Boolean = true,
+    darkTheme: Boolean = false, // Default to clean Light Theme
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) DarkEditorialColorScheme else LightEditorialColorScheme
@@ -71,4 +71,3 @@ fun ClaimITTheme(
         content = content
     )
 }
-
