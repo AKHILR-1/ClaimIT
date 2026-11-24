@@ -186,6 +186,12 @@ class PostCreationViewModel(
             is PostCreationIntent.DismissError -> {
                 _uiState.update { it.copy(errorMessage = null) }
             }
+            is PostCreationIntent.ResetForm -> {
+                _uiState.value = PostCreationUiState(
+                    availableBuildings = _uiState.value.availableBuildings,
+                    filteredBuildings = _uiState.value.availableBuildings
+                )
+            }
         }
     }
 
