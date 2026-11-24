@@ -7,8 +7,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -29,7 +31,9 @@ import com.example.claimit.domain.usecase.DetectDuplicateListingsUseCase
 import com.example.claimit.presentation.main.ClaimItMainScreen
 import com.example.claimit.presentation.main.MainViewModel
 import com.example.claimit.presentation.postcreation.PostCreationViewModel
+import com.example.claimit.presentation.splash.SplashScreen
 import com.example.claimit.ui.theme.ClaimITTheme
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -84,16 +88,26 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            var isDarkTheme by rememberSaveable { mutableStateOf(true) }
+            var isDarkTheme by rememberSaveable { mutableStateOf(false) } // Default Light Theme
+            var showSplash by remember { mutableStateOf(true) }
+
+            LaunchedEffect(Unit) {
+                delay(2000L) // Exactly 2 seconds launch display time
+                showSplash = false
+            }
 
             ClaimITTheme(darkTheme = isDarkTheme) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    ClaimItMainScreen(
-                        postCreationViewModel = postCreationViewModel,
-                        mainViewModel = mainViewModel,
-                        isDarkTheme = isDarkTheme,
-                        onToggleTheme = { isDarkTheme = !isDarkTheme }
-                    )
+                    if (showSplash) {
+                        SplashScreen()
+                    } else {
+                        ClaimItMainScreen(
+                            postCreationViewModel = postCreationViewModel,
+                            mainViewModel = mainViewModel,
+                            isDarkTheme = isDarkTheme,
+                            onToggleTheme = { isDarkTheme = !isDarkTheme }
+                        )
+                    }
                 }
             }
         }

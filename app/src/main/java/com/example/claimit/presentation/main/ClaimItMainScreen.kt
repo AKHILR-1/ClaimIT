@@ -58,7 +58,7 @@ fun ClaimItMainScreen(
     postCreationViewModel: PostCreationViewModel,
     mainViewModel: MainViewModel,
     modifier: Modifier = Modifier,
-    isDarkTheme: Boolean = true,
+    isDarkTheme: Boolean = false,
     onToggleTheme: () -> Unit = {}
 ) {
     val context = LocalContext.current
