@@ -1,0 +1,16 @@
+﻿package com.ssnexora.claimit.domain.repository
+
+import com.ssnexora.claimit.domain.model.Claim
+import com.ssnexora.claimit.domain.model.ClaimStatus
+import kotlinx.coroutines.flow.Flow
+
+interface ClaimRepository {
+    suspend fun submitClaim(claim: Claim): Result<String>
+    fun getAllClaims(): Flow<List<Claim>>
+    fun getClaimsForUser(userId: String): Flow<List<Claim>>
+    fun getClaimsForListingOwner(ownerId: String): Flow<List<Claim>>
+    fun getClaimsForItem(itemId: String): Flow<List<Claim>>
+    suspend fun updateClaimStatus(claimId: String, status: ClaimStatus, reviewerId: String, reviewNotes: String = ""): Result<Unit>
+    suspend fun confirmItemHandover(claimId: String, userId: String, isUploader: Boolean): Result<Unit>
+}
+

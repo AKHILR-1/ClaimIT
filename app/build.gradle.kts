@@ -1,4 +1,4 @@
-import java.util.Properties
+﻿import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.claimit"
+    namespace = "com.ssnexora.claimit"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.example.claimit"
+        applicationId = "com.ssnexora.claimit"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
@@ -83,3 +83,4 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
+

@@ -1,0 +1,1040 @@
+﻿package com.ssnexora.claimit.data.repository
+
+import android.content.Context
+import android.util.Log
+import com.ssnexora.claimit.ClaimITApplication
+import com.ssnexora.claimit.core.dispatchers.CoroutineDispatchers
+import com.ssnexora.claimit.domain.model.AccountStatus
+import com.ssnexora.claimit.domain.model.User
+import com.ssnexora.claimit.domain.model.UserRole
+import com.ssnexora.claimit.domain.repository.AuthRepository
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthException
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.UserProfileChangeRequest
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ServerValue
+import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import java.util.UUID
+
+class AuthRepositoryImpl(
+    private val dispatchers: CoroutineDispatchers,
+    private val firebaseAuth: FirebaseAuth? = try { FirebaseAuth.getInstance() } catch (_: Exception) { null },
+    private val realtimeDatabase: FirebaseDatabase? = try {
+        FirebaseDatabase.getInstance("https://claimit-322b5-default-rtdb.asia-southeast1.firebasedatabase.app")
+    } catch (_: Exception) {
+        try { FirebaseDatabase.getInstance() } catch (_: Exception) { null }
+    }
+) : AuthRepository {
+
+    private val TAG = "AuthRepository"
+
+    private val prefs by lazy {
+        try {
+            ClaimITApplication.instance.getSharedPreferences("claimit_auth_prefs", Context.MODE_PRIVATE)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private val defaultUser = User(
+        id = "user_student_1",
+        email = "student@campus.edu",
+        displayName = "Alex Student",
+        collegeEmail = "student@campus.edu",
+        studentId = "12104592",
+        organizationId = "lpu_main_campus",
+        role = UserRole.STUDENT,
+        status = AccountStatus.VERIFIED,
+        isEmailVerified = true
+    )
+
+    private val userDatabase = mutableMapOf<String, User>(
+        "student@campus.edu" to defaultUser,
+        "admin@campus.edu" to User(
+            id = "user_admin_1",
+            email = "admin@campus.edu",
+            displayName = "Campus Admin Officer",
+            collegeEmail = "admin@campus.edu",
+            studentId = "ADM-8802",
+            organizationId = "lpu_main_campus",
+            role = UserRole.ADMIN,
+            status = AccountStatus.VERIFIED,
+            isEmailVerified = true
+        )
+    )
+
+    private val _currentUserState = MutableStateFlow<User?>(null)
+    override val currentUserState: StateFlow<User?> = _currentUserState.asStateFlow()
+
+    private fun setCurrentUser(user: User?) {
+        _currentUserState.value = user
+        if (user != null) {
+            saveUserToPrefs(user)
+        } else {
+            clearUserFromPrefs()
+        }
+    }
+
+    private fun saveUserToPrefs(user: User) {
+        prefs?.edit()?.apply {
+            putString("saved_user_id", user.id)
+            putString("saved_user_email", user.email)
+            putString("saved_user_display_name", user.displayName)
+            putString("saved_user_college_email", user.collegeEmail)
+            putString("saved_user_student_id", user.studentId)
+            putString("saved_user_org_id", user.organizationId)
+            putString("saved_user_role", user.role.name)
+            putString("saved_user_status", user.status.name)
+            putBoolean("saved_user_is_email_verified", user.isEmailVerified)
+            putBoolean("is_logged_in", true)
+            apply()
+        }
+    }
+
+    private fun loadUserFromPrefs(): User? {
+        val p = prefs ?: return null
+        if (!p.getBoolean("is_logged_in", false)) return null
+        val id = p.getString("saved_user_id", null) ?: return null
+        val email = p.getString("saved_user_email", "") ?: ""
+        val displayName = p.getString("saved_user_display_name", "") ?: ""
+        val collegeEmail = p.getString("saved_user_college_email", "") ?: ""
+        val studentId = p.getString("saved_user_student_id", "") ?: ""
+        val orgId = p.getString("saved_user_org_id", "lpu_main_campus") ?: "lpu_main_campus"
+        val roleStr = p.getString("saved_user_role", UserRole.STUDENT.name) ?: UserRole.STUDENT.name
+        val statusStr = p.getString("saved_user_status", AccountStatus.VERIFIED.name) ?: AccountStatus.VERIFIED.name
+        val isEmailVerified = p.getBoolean("saved_user_is_email_verified", true)
+
+        val role = try { UserRole.valueOf(roleStr) } catch (_: Exception) { UserRole.STUDENT }
+        val status = try { AccountStatus.valueOf(statusStr) } catch (_: Exception) { AccountStatus.VERIFIED }
+
+        return User(
+            id = id,
+            email = email,
+            displayName = displayName,
+            collegeEmail = collegeEmail,
+            studentId = studentId,
+            organizationId = orgId,
+            role = role,
+            status = status,
+            isEmailVerified = isEmailVerified
+        )
+    }
+
+    private fun clearUserFromPrefs() {
+        prefs?.edit()?.apply {
+            clear()
+            apply()
+        }
+    }
+
+    private val authStateListener = FirebaseAuth.AuthStateListener { auth ->
+        val fbUser = auth.currentUser
+        if (fbUser != null) {
+            fetchUserProfile(fbUser)
+        } else if (firebaseAuth != null && prefs?.getBoolean("is_logged_in", false) == false) {
+            setCurrentUser(null)
+        }
+    }
+
+    init {
+        val savedUser = loadUserFromPrefs()
+        if (savedUser != null) {
+            _currentUserState.value = savedUser
+        }
+
+        val auth = firebaseAuth
+        if (auth != null) {
+            try {
+                auth.addAuthStateListener(authStateListener)
+                auth.currentUser?.let { fetchUserProfile(it) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error adding auth state listener", e)
+            }
+        }
+    }
+
+    private fun fetchUserProfile(fbUser: FirebaseUser) {
+        val email = fbUser.email ?: ""
+        val isVerified = fbUser.isEmailVerified
+
+        val rtdb = realtimeDatabase
+        if (rtdb != null) {
+            try {
+                rtdb.reference.child("users").child(fbUser.uid).get()
+                    .addOnSuccessListener { snapshot ->
+                        if (snapshot != null && snapshot.exists()) {
+                            val fullName = snapshot.child("fullName").getValue(String::class.java)
+                                ?: snapshot.child("displayName").getValue(String::class.java)
+                                ?: fbUser.displayName
+                                ?: email.substringBefore("@")
+                            val collegeEmail = snapshot.child("collegeEmail").getValue(String::class.java) ?: email
+                            val collegeEmailVerified = snapshot.child("collegeEmailVerified").getValue(Boolean::class.java) ?: isVerified
+                            val contactEmail = snapshot.child("contactEmail").getValue(String::class.java) ?: email
+                            val contactEmailVerified = snapshot.child("contactEmailVerified").getValue(Boolean::class.java) ?: isVerified
+                            val studentReg = snapshot.child("registrationNumber").getValue(String::class.java)
+                                ?: snapshot.child("studentRegistrationNumber").getValue(String::class.java)
+                                ?: snapshot.child("studentId").getValue(String::class.java)
+                                ?: ""
+                            val roleStr = snapshot.child("role").getValue(String::class.java) ?: UserRole.STUDENT.name
+                            val role = try { UserRole.valueOf(roleStr) } catch (_: Exception) { UserRole.STUDENT }
+
+                            val orgId = snapshot.child("organizationId").getValue(String::class.java)
+                                ?: snapshot.child("collegeId").getValue(String::class.java)
+                                ?: "lpu_main_campus"
+
+                            try {
+                                val userUpdates = mapOf<String, Any>(
+                                    "organizationId" to orgId,
+                                    "collegeId" to orgId
+                                )
+                                rtdb.reference.child("users").child(fbUser.uid).updateChildren(userUpdates)
+
+                                val membershipMap = mapOf<String, Any>(
+                                    "collegeId" to orgId,
+                                    "organizationId" to orgId,
+                                    "verified" to isVerified,
+                                    "role" to role.name,
+                                    "updatedAt" to ServerValue.TIMESTAMP
+                                )
+                                rtdb.reference.child("memberships").child(fbUser.uid).setValue(membershipMap)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to sync membership record in RTDB: ${e.message}")
+                            }
+
+                            val user = User(
+                                id = fbUser.uid,
+                                email = contactEmail,
+                                displayName = fullName,
+                                collegeEmail = collegeEmail,
+                                collegeEmailVerified = collegeEmailVerified,
+                                contactEmail = contactEmail,
+                                contactEmailVerified = contactEmailVerified,
+                                studentId = studentReg,
+                                registrationNumber = studentReg,
+                                organizationId = orgId,
+                                role = role,
+                                status = AccountStatus.VERIFIED,
+                                isEmailVerified = collegeEmailVerified || isVerified,
+                                photoUrl = fbUser.photoUrl?.toString() ?: ""
+                            )
+                            setCurrentUser(user)
+                        } else {
+                            setCurrentUser(buildFallbackUser(fbUser))
+                        }
+                    }
+                    .addOnFailureListener { e ->
+                        Log.w(TAG, "Realtime Database profile fetch failed: ${e.message}, using fallback profile")
+                        setCurrentUser(buildFallbackUser(fbUser))
+                    }
+            } catch (e: Exception) {
+                Log.w(TAG, "Exception during Realtime Database profile fetch: ${e.message}")
+                setCurrentUser(buildFallbackUser(fbUser))
+            }
+        } else {
+            setCurrentUser(buildFallbackUser(fbUser))
+        }
+    }
+
+    private fun buildFallbackUser(fbUser: FirebaseUser): User {
+        val email = fbUser.email ?: ""
+        return User(
+            id = fbUser.uid,
+            email = email,
+            displayName = fbUser.displayName ?: email.substringBefore("@"),
+            collegeEmail = email,
+            studentId = "",
+            organizationId = "lpu_main_campus",
+            role = if (email.contains("admin", ignoreCase = true)) UserRole.ADMIN else UserRole.STUDENT,
+            status = AccountStatus.VERIFIED,
+            isEmailVerified = fbUser.isEmailVerified,
+            photoUrl = fbUser.photoUrl?.toString() ?: ""
+        )
+    }
+
+    override suspend fun register(
+        email: String,
+        pass: String,
+        name: String,
+        collegeEmail: String,
+        studentId: String,
+        role: UserRole
+    ): Result<User> = withContext(dispatchers.io) {
+        try {
+            val cleanEmail = email.trim()
+            val cleanCollegeEmail = collegeEmail.trim()
+
+            if (cleanEmail.isBlank() || pass.length < 6) {
+                return@withContext Result.failure(Exception("Password must be at least 6 characters long."))
+            }
+            if (!isValidEmail(cleanEmail) || !isValidEmail(cleanCollegeEmail)) {
+                return@withContext Result.failure(Exception("Please provide a valid email address format."))
+            }
+
+            if (!isCollegeDomain(cleanCollegeEmail)) {
+                return@withContext Result.failure(Exception("Please enter a valid email address."))
+            }
+
+            val assignedRole = if (cleanEmail.contains("admin", ignoreCase = true)) UserRole.ADMIN else UserRole.STUDENT
+
+            val auth = firebaseAuth
+            if (auth != null) {
+                val authResult = auth.createUserWithEmailAndPassword(cleanEmail, pass).await()
+                val fbUser = authResult.user ?: return@withContext Result.failure(Exception("Failed to create Firebase user account."))
+
+                val profileUpdates = UserProfileChangeRequest.Builder()
+                    .setDisplayName(name.trim().ifBlank { cleanEmail.substringBefore("@") })
+                    .build()
+                fbUser.updateProfile(profileUpdates).await()
+
+                try {
+                    fbUser.sendEmailVerification().await()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Email verification link dispatch deferred: ${e.message}")
+                }
+
+                val rtdbMap = mapOf(
+                    "fullName" to name.trim().ifBlank { cleanCollegeEmail.substringBefore("@") },
+                    "collegeEmail" to cleanCollegeEmail,
+                    "collegeEmailVerified" to fbUser.isEmailVerified,
+                    "registrationNumber" to studentId.trim(),
+                    "studentRegistrationNumber" to studentId.trim(),
+                    "contactEmail" to cleanCollegeEmail,
+                    "contactEmailVerified" to fbUser.isEmailVerified,
+                    "role" to assignedRole.name,
+                    "organizationId" to "lpu_main_campus",
+                    "collegeId" to "lpu_main_campus",
+                    "createdAt" to ServerValue.TIMESTAMP,
+                    "updatedAt" to ServerValue.TIMESTAMP
+                )
+
+                val membershipMap = mapOf(
+                    "collegeId" to "lpu_main_campus",
+                    "organizationId" to "lpu_main_campus",
+                    "verified" to fbUser.isEmailVerified,
+                    "role" to assignedRole.name,
+                    "createdAt" to ServerValue.TIMESTAMP
+                )
+
+                val rtdb = realtimeDatabase
+                if (rtdb != null) {
+                    try {
+                        rtdb.reference.child("users").child(fbUser.uid).setValue(rtdbMap).await()
+                        rtdb.reference.child("memberships").child(fbUser.uid).setValue(membershipMap).await()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to save profile in Realtime Database: ${e.message}", e)
+                    }
+                }
+
+                val newUser = User(
+                    id = fbUser.uid,
+                    email = cleanEmail,
+                    displayName = name.trim().ifBlank { cleanEmail.substringBefore("@") },
+                    collegeEmail = cleanCollegeEmail,
+                    studentId = studentId.trim(),
+                    organizationId = "lpu_main_campus",
+                    role = assignedRole,
+                    status = AccountStatus.VERIFIED,
+                    isEmailVerified = fbUser.isEmailVerified
+                )
+
+                setCurrentUser(newUser)
+                Result.success(newUser)
+            } else {
+                if (userDatabase.containsKey(cleanEmail)) {
+                    return@withContext Result.failure(Exception("An account with this email already exists."))
+                }
+                val newUser = User(
+                    id = "user_${System.currentTimeMillis()}",
+                    email = cleanEmail,
+                    displayName = name.trim().ifBlank { cleanEmail.substringBefore("@") },
+                    collegeEmail = cleanCollegeEmail,
+                    studentId = studentId.trim(),
+                    organizationId = "lpu_main_campus",
+                    role = assignedRole,
+                    status = AccountStatus.VERIFIED,
+                    isEmailVerified = true
+                )
+                userDatabase[cleanEmail] = newUser
+                setCurrentUser(newUser)
+                Result.success(newUser)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Registration failed: ${e.message}", e)
+            Result.failure(mapAuthException(e))
+        }
+    }
+
+    override suspend fun login(email: String, pass: String): Result<User> = withContext(dispatchers.io) {
+        try {
+            val cleanEmail = email.trim()
+            if (cleanEmail.isBlank() || pass.isBlank()) {
+                return@withContext Result.failure(Exception("Email and password cannot be empty."))
+            }
+
+            val auth = firebaseAuth
+            if (auth != null) {
+                val authResult = auth.signInWithEmailAndPassword(cleanEmail, pass).await()
+                val fbUser = authResult.user ?: return@withContext Result.failure(Exception("Sign in failed."))
+
+                try {
+                    fbUser.reload().await()
+                } catch (e: Exception) {
+                    Log.w(TAG, "User reload failed: ${e.message}")
+                }
+
+                val currentUser = try {
+                    val rtdb = realtimeDatabase
+                    if (rtdb != null) {
+                        val snapshot = rtdb.reference.child("users").child(fbUser.uid).get().await()
+                        if (snapshot != null && snapshot.exists()) {
+                            val fullName = snapshot.child("fullName").getValue(String::class.java)
+                                ?: snapshot.child("displayName").getValue(String::class.java)
+                                ?: fbUser.displayName
+                                ?: cleanEmail.substringBefore("@")
+                            val studentReg = snapshot.child("studentRegistrationNumber").getValue(String::class.java)
+                                ?: snapshot.child("studentId").getValue(String::class.java)
+                                ?: ""
+                            val roleStr = snapshot.child("role").getValue(String::class.java) ?: UserRole.STUDENT.name
+                            val role = try { UserRole.valueOf(roleStr) } catch (_: Exception) { UserRole.STUDENT }
+
+                            User(
+                                id = fbUser.uid,
+                                email = cleanEmail,
+                                displayName = fullName,
+                                collegeEmail = cleanEmail,
+                                studentId = studentReg,
+                                organizationId = "lpu_main_campus",
+                                role = role,
+                                status = AccountStatus.VERIFIED,
+                                isEmailVerified = fbUser.isEmailVerified,
+                                photoUrl = fbUser.photoUrl?.toString() ?: ""
+                            )
+                        } else {
+                            buildFallbackUser(fbUser)
+                        }
+                    } else {
+                        buildFallbackUser(fbUser)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to fetch user profile on login: ${e.message}")
+                    buildFallbackUser(fbUser)
+                }
+
+                setCurrentUser(currentUser)
+                Result.success(currentUser)
+            } else {
+                val existing = userDatabase[cleanEmail]
+                if (existing != null) {
+                    setCurrentUser(existing)
+                    Result.success(existing)
+                } else if (cleanEmail.contains("@")) {
+                    val assignedRole = if (cleanEmail.contains("admin", ignoreCase = true)) UserRole.ADMIN else UserRole.STUDENT
+                    val newUser = User(
+                        id = "user_${System.currentTimeMillis()}",
+                        email = cleanEmail,
+                        displayName = cleanEmail.substringBefore("@"),
+                        collegeEmail = cleanEmail,
+                        studentId = "STU-" + cleanEmail.hashCode().toString().takeLast(6),
+                        organizationId = "lpu_main_campus",
+                        role = assignedRole,
+                        status = AccountStatus.VERIFIED,
+                        isEmailVerified = true
+                    )
+                    userDatabase[cleanEmail] = newUser
+                    setCurrentUser(newUser)
+                    Result.success(newUser)
+                } else {
+                    Result.failure(Exception("Invalid credentials or account not found."))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Login failed: ${e.message}", e)
+            Result.failure(mapAuthException(e))
+        }
+    }
+
+    override suspend fun sendEmailVerification(): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            val auth = firebaseAuth ?: return@withContext Result.success(Unit)
+            val fbUser = auth.currentUser ?: return@withContext Result.failure(Exception("No active user logged in."))
+            fbUser.sendEmailVerification().await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Send email verification failed: ${e.message}", e)
+            Result.failure(mapAuthException(e))
+        }
+    }
+
+    override suspend fun checkEmailVerificationStatus(): Result<Boolean> = withContext(dispatchers.io) {
+        try {
+            val auth = firebaseAuth ?: return@withContext Result.success(true)
+            val fbUser = auth.currentUser ?: return@withContext Result.failure(Exception("No active user logged in."))
+            try {
+                fbUser.reload().await()
+            } catch (e: Exception) {
+                Log.w(TAG, "Check verification status reload failed: ${e.message}")
+            }
+            val isVerified = fbUser.isEmailVerified
+            if (isVerified) {
+                realtimeDatabase?.let { rtdb ->
+                    try {
+                        val updates = mapOf<String, Any>(
+                            "collegeEmailVerified" to true,
+                            "contactEmailVerified" to true,
+                            "updatedAt" to ServerValue.TIMESTAMP
+                        )
+                        rtdb.reference.child("users").child(fbUser.uid).updateChildren(updates).await()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to update verification status in RTDB: ${e.message}")
+                    }
+                }
+            }
+            val current = _currentUserState.value
+            if (current != null) {
+                val updated = current.copy(
+                    isEmailVerified = isVerified,
+                    collegeEmailVerified = isVerified,
+                    contactEmailVerified = isVerified
+                )
+                setCurrentUser(updated)
+            }
+            Result.success(isVerified)
+        } catch (e: Exception) {
+            Log.e(TAG, "Check verification status failed: ${e.message}", e)
+            Result.failure(mapAuthException(e))
+        }
+    }
+
+    override suspend fun updateContactEmail(newContactEmail: String, currentPass: String): Result<User> = withContext(dispatchers.io) {
+        try {
+            val cleanNewEmail = newContactEmail.trim()
+            if (!isValidEmail(cleanNewEmail)) {
+                return@withContext Result.failure(Exception("Please enter a valid contact email format."))
+            }
+
+            val auth = firebaseAuth
+            if (auth != null) {
+                val fbUser = auth.currentUser ?: return@withContext Result.failure(Exception("User not authenticated."))
+                val currentEmail = fbUser.email ?: ""
+
+                try {
+                    val credential = com.google.firebase.auth.EmailAuthProvider.getCredential(currentEmail, currentPass)
+                    fbUser.reauthenticate(credential).await()
+                } catch (e: Exception) {
+                    return@withContext Result.failure(Exception("Re-authentication failed. Please verify your current password."))
+                }
+
+                try {
+                    fbUser.verifyBeforeUpdateEmail(cleanNewEmail).await()
+                } catch (e: Exception) {
+                    Log.w(TAG, "verifyBeforeUpdateEmail exception: ${e.message}")
+                }
+
+                val updates = mapOf<String, Any>(
+                    "contactEmail" to cleanNewEmail,
+                    "contactEmailVerified" to false,
+                    "updatedAt" to ServerValue.TIMESTAMP
+                )
+
+                realtimeDatabase?.let { rtdb ->
+                    try {
+                        rtdb.reference.child("users").child(fbUser.uid).updateChildren(updates).await()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Realtime Database contact email update failed: ${e.message}")
+                    }
+                }
+
+                val current = _currentUserState.value
+                val updated = current?.copy(
+                    contactEmail = cleanNewEmail,
+                    contactEmailVerified = false,
+                    updatedAtTimestamp = System.currentTimeMillis()
+                ) ?: buildFallbackUser(fbUser)
+
+                setCurrentUser(updated)
+                Result.success(updated)
+            } else {
+                val current = _currentUserState.value ?: return@withContext Result.failure(Exception("User not authenticated"))
+                val updated = current.copy(
+                    contactEmail = cleanNewEmail,
+                    contactEmailVerified = false,
+                    updatedAtTimestamp = System.currentTimeMillis()
+                )
+                userDatabase[current.email] = updated
+                setCurrentUser(updated)
+                Result.success(updated)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Update contact email failed: ${e.message}", e)
+            Result.failure(mapAuthException(e))
+        }
+    }
+
+    override suspend fun saveFcmToken(deviceId: String, token: String): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            val user = _currentUserState.value ?: return@withContext Result.success(Unit)
+            val rtdb = realtimeDatabase ?: return@withContext Result.success(Unit)
+
+            val tokenMap = mapOf(
+                "token" to token,
+                "userId" to user.id,
+                "organizationId" to user.organizationId,
+                "updatedAt" to ServerValue.TIMESTAMP
+            )
+
+            rtdb.reference.child("fcmTokens").child(user.id).child(deviceId).setValue(tokenMap).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.w(TAG, "Save FCM token failed: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun removeFcmToken(deviceId: String): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            val user = _currentUserState.value ?: return@withContext Result.success(Unit)
+            val rtdb = realtimeDatabase ?: return@withContext Result.success(Unit)
+
+            rtdb.reference.child("fcmTokens").child(user.id).child(deviceId).removeValue().await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.w(TAG, "Remove FCM token failed: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun registerSession(
+        userId: String,
+        deviceId: String,
+        deviceName: String,
+        isAdmin: Boolean
+    ): Result<String> = withContext(dispatchers.io) {
+        try {
+            val rtdb = realtimeDatabase
+            val sessionId = "session_${UUID.randomUUID()}"
+
+            if (rtdb != null && userId.isNotBlank()) {
+                val sessionsRef = rtdb.reference.child("deviceSessions").child(userId)
+                val snapshot = sessionsRef.get().await()
+
+                if (isAdmin) {
+                    var activeCount = 0
+                    if (snapshot.exists()) {
+                        for (child in snapshot.children) {
+                            val isActive = child.child("isActive").getValue(Boolean::class.java) ?: false
+                            if (isActive) activeCount++
+                        }
+                    }
+                    if (activeCount >= 3) {
+                        return@withContext Result.failure(
+                            Exception("Maximum admin device limit reached. Access is already active on three devices.")
+                        )
+                    }
+                } else {
+                    if (snapshot.exists()) {
+                        val updates = mutableMapOf<String, Any>()
+                        for (child in snapshot.children) {
+                            val childId = child.key ?: continue
+                            updates["$childId/isActive"] = false
+                        }
+                        if (updates.isNotEmpty()) {
+                            sessionsRef.updateChildren(updates).await()
+                        }
+                    }
+                }
+
+                val sessionMap = mapOf(
+                    "sessionId" to sessionId,
+                    "userId" to userId,
+                    "deviceId" to deviceId,
+                    "deviceName" to deviceName,
+                    "isActive" to true,
+                    "createdAt" to ServerValue.TIMESTAMP,
+                    "lastActive" to ServerValue.TIMESTAMP
+                )
+
+                sessionsRef.child(sessionId).setValue(sessionMap).await()
+            }
+
+            Result.success(sessionId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Register session failed: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    override fun observeSessionRevocation(userId: String, sessionId: String): Flow<Boolean> {
+        val rtdb = realtimeDatabase
+        if (rtdb == null || userId.isBlank() || sessionId.isBlank()) {
+            return kotlinx.coroutines.flow.flowOf(false)
+        }
+
+        return callbackFlow {
+            val ref = rtdb.reference.child("deviceSessions").child(userId).child(sessionId)
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    if (snapshot.exists()) {
+                        val isActive = snapshot.child("isActive").getValue(Boolean::class.java) ?: true
+                        if (!isActive) {
+                            trySend(true)
+                        }
+                    }
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.w(TAG, "Session listener cancelled: ${error.message}")
+                }
+            }
+
+            ref.addValueEventListener(listener)
+            awaitClose { ref.removeEventListener(listener) }
+        }
+    }
+
+    override fun getActiveDeviceSessions(userId: String): Flow<List<com.ssnexora.claimit.domain.model.DeviceSession>> {
+        val rtdb = realtimeDatabase
+        if (rtdb == null || userId.isBlank()) {
+            return kotlinx.coroutines.flow.flowOf(emptyList())
+        }
+
+        return callbackFlow {
+            val ref = rtdb.reference.child("deviceSessions").child(userId)
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val list = mutableListOf<com.ssnexora.claimit.domain.model.DeviceSession>()
+                    if (snapshot.exists()) {
+                        for (child in snapshot.children) {
+                            try {
+                                val sId = child.key ?: continue
+                                val dId = child.child("deviceId").getValue(String::class.java) ?: ""
+                                val dName = child.child("deviceName").getValue(String::class.java) ?: "Android Device"
+                                val active = child.child("isActive").getValue(Boolean::class.java) ?: false
+                                val created = child.child("createdAt").getValue(Long::class.java) ?: System.currentTimeMillis()
+                                val lastActive = child.child("lastActive").getValue(Long::class.java) ?: System.currentTimeMillis()
+
+                                if (active) {
+                                    list.add(
+                                        com.ssnexora.claimit.domain.model.DeviceSession(
+                                            sessionId = sId,
+                                            userId = userId,
+                                            deviceId = dId,
+                                            deviceName = dName,
+                                            isActive = active,
+                                            createdAtTimestamp = created,
+                                            lastActiveTimestamp = lastActive
+                                        )
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error parsing device session: ${e.message}")
+                            }
+                        }
+                    }
+                    trySend(list)
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.w(TAG, "Device sessions listener cancelled: ${error.message}")
+                }
+            }
+
+            ref.addValueEventListener(listener)
+            awaitClose { ref.removeEventListener(listener) }
+        }
+    }
+
+    override fun getAllDeviceSessions(): Flow<List<com.ssnexora.claimit.domain.model.DeviceSession>> {
+        val rtdb = realtimeDatabase ?: return kotlinx.coroutines.flow.flowOf(emptyList())
+
+        return callbackFlow {
+            val ref = rtdb.reference.child("deviceSessions")
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val list = mutableListOf<com.ssnexora.claimit.domain.model.DeviceSession>()
+                    if (snapshot.exists()) {
+                        for (userNode in snapshot.children) {
+                            val userId = userNode.key ?: continue
+                            for (child in userNode.children) {
+                                try {
+                                    val sId = child.key ?: continue
+                                    val dId = child.child("deviceId").getValue(String::class.java) ?: ""
+                                    val dName = child.child("deviceName").getValue(String::class.java) ?: "Android Device"
+                                    val active = child.child("isActive").getValue(Boolean::class.java) ?: false
+                                    val created = child.child("createdAt").getValue(Long::class.java) ?: System.currentTimeMillis()
+                                    val lastActive = child.child("lastActive").getValue(Long::class.java) ?: System.currentTimeMillis()
+
+                                    if (active) {
+                                        list.add(
+                                            com.ssnexora.claimit.domain.model.DeviceSession(
+                                                sessionId = sId,
+                                                userId = userId,
+                                                deviceId = dId,
+                                                deviceName = dName,
+                                                isActive = active,
+                                                createdAtTimestamp = created,
+                                                lastActiveTimestamp = lastActive
+                                            )
+                                        )
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error parsing all device sessions: ${e.message}")
+                                }
+                            }
+                        }
+                    }
+                    trySend(list)
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.w(TAG, "All device sessions listener cancelled: ${error.message}")
+                }
+            }
+
+            ref.addValueEventListener(listener)
+            awaitClose { ref.removeEventListener(listener) }
+        }
+    }
+
+    override suspend fun revokeSession(userId: String, sessionId: String): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            realtimeDatabase?.let { rtdb ->
+                rtdb.reference.child("deviceSessions").child(userId).child(sessionId).child("isActive").setValue(false).await()
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun suspendUserAccount(userId: String): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            realtimeDatabase?.let { rtdb ->
+                rtdb.reference.child("users").child(userId).child("status").setValue(AccountStatus.SUSPENDED.name).await()
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun unsuspendUserAccount(userId: String): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            realtimeDatabase?.let { rtdb ->
+                rtdb.reference.child("users").child(userId).child("status").setValue(AccountStatus.VERIFIED.name).await()
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override fun getAllRegisteredUsers(): Flow<List<User>> {
+        val rtdb = realtimeDatabase
+        if (rtdb == null) {
+            return kotlinx.coroutines.flow.flowOf(userDatabase.values.toList())
+        }
+
+        return callbackFlow {
+            val ref = rtdb.reference.child("users")
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val list = mutableListOf<User>()
+                    if (snapshot.exists()) {
+                        for (child in snapshot.children) {
+                            try {
+                                val uid = child.key ?: continue
+                                val email = child.child("email").getValue(String::class.java) ?: child.child("contactEmail").getValue(String::class.java) ?: ""
+                                val fullName = child.child("fullName").getValue(String::class.java) ?: child.child("displayName").getValue(String::class.java) ?: email.substringBefore("@")
+                                val colEmail = child.child("collegeEmail").getValue(String::class.java) ?: email
+                                val regNum = child.child("registrationNumber").getValue(String::class.java) ?: child.child("studentRegistrationNumber").getValue(String::class.java) ?: ""
+                                val roleStr = child.child("role").getValue(String::class.java) ?: UserRole.STUDENT.name
+                                val statusStr = child.child("status").getValue(String::class.java) ?: AccountStatus.VERIFIED.name
+
+                                val role = try { UserRole.valueOf(roleStr) } catch (_: Exception) { UserRole.STUDENT }
+                                val status = try { AccountStatus.valueOf(statusStr) } catch (_: Exception) { AccountStatus.VERIFIED }
+
+                                list.add(
+                                    User(
+                                        id = uid,
+                                        email = email,
+                                        displayName = fullName,
+                                        collegeEmail = colEmail,
+                                        studentId = regNum,
+                                        registrationNumber = regNum,
+                                        organizationId = "lpu_main_campus",
+                                        role = role,
+                                        status = status,
+                                        isEmailVerified = true
+                                    )
+                                )
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error parsing registered user: ${e.message}")
+                            }
+                        }
+                    }
+                    trySend(list)
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.w(TAG, "All users listener cancelled: ${error.message}")
+                }
+            }
+
+            ref.addValueEventListener(listener)
+            awaitClose { ref.removeEventListener(listener) }
+        }
+    }
+
+    override suspend fun logout() = withContext(dispatchers.io) {
+        try {
+            firebaseAuth?.signOut()
+        } catch (e: Exception) {
+            Log.w(TAG, "Sign out exception: ${e.message}")
+        }
+        setCurrentUser(null)
+    }
+
+    override suspend fun resetPassword(email: String): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            val cleanEmail = email.trim()
+            if (!isValidEmail(cleanEmail)) {
+                return@withContext Result.failure(Exception("Please enter a valid email address."))
+            }
+            val auth = firebaseAuth
+            if (auth != null) {
+                auth.sendPasswordResetEmail(cleanEmail).await()
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Password reset failed: ${e.message}", e)
+            Result.failure(mapAuthException(e))
+        }
+    }
+
+    override suspend fun updateProfile(displayName: String, studentId: String): Result<User> = withContext(dispatchers.io) {
+        try {
+            val auth = firebaseAuth
+            if (auth != null) {
+                val fbUser = auth.currentUser ?: return@withContext Result.failure(Exception("User not authenticated."))
+                if (displayName.isNotBlank()) {
+                    val profileUpdates = UserProfileChangeRequest.Builder()
+                        .setDisplayName(displayName)
+                        .build()
+                    fbUser.updateProfile(profileUpdates).await()
+                }
+
+                val updates = mutableMapOf<String, Any>()
+                if (displayName.isNotBlank()) {
+                    updates["displayName"] = displayName
+                    updates["fullName"] = displayName
+                }
+                if (studentId.isNotBlank()) {
+                    updates["studentId"] = studentId
+                    updates["studentRegistrationNumber"] = studentId
+                }
+
+                realtimeDatabase?.let { rtdb ->
+                    try {
+                        rtdb.reference.child("users").child(fbUser.uid).updateChildren(updates).await()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Realtime Database profile update failed: ${e.message}")
+                    }
+                }
+
+                val current = _currentUserState.value
+                val updated = current?.copy(
+                    displayName = displayName.ifBlank { current.displayName },
+                    studentId = studentId.ifBlank { current.studentId }
+                ) ?: buildFallbackUser(fbUser)
+
+                setCurrentUser(updated)
+                Result.success(updated)
+            } else {
+                val current = _currentUserState.value ?: return@withContext Result.failure(Exception("User not authenticated"))
+                val updated = current.copy(
+                    displayName = displayName.ifBlank { current.displayName },
+                    studentId = studentId.ifBlank { current.studentId }
+                )
+                userDatabase[current.email] = updated
+                setCurrentUser(updated)
+                Result.success(updated)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Update profile failed: ${e.message}", e)
+            Result.failure(mapAuthException(e))
+        }
+    }
+
+    override suspend fun deleteAccount(): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            val auth = firebaseAuth
+            if (auth != null) {
+                val fbUser = auth.currentUser ?: return@withContext Result.failure(Exception("User not authenticated."))
+                realtimeDatabase?.let { rtdb ->
+                    try {
+                        rtdb.reference.child("users").child(fbUser.uid).removeValue().await()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Realtime Database user deletion failed: ${e.message}")
+                    }
+                }
+                fbUser.delete().await()
+                setCurrentUser(null)
+                Result.success(Unit)
+            } else {
+                val current = _currentUserState.value ?: return@withContext Result.failure(Exception("User not authenticated"))
+                userDatabase.remove(current.email)
+                setCurrentUser(null)
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Delete account failed: ${e.message}", e)
+            Result.failure(mapAuthException(e))
+        }
+    }
+
+    private fun isValidEmail(email: String): Boolean {
+        return email.contains("@") && email.contains(".") && email.indexOf("@") < email.lastIndexOf(".")
+    }
+
+    private fun isCollegeDomain(email: String): Boolean {
+        return isValidEmail(email)
+    }
+
+    private fun mapAuthException(e: Exception): Exception {
+        val message = e.localizedMessage ?: ""
+        Log.e(TAG, "Mapping exception: ${e.javaClass.simpleName} - $message")
+
+        if (message.contains("CONFIGURATION_NOT_FOUND", ignoreCase = true) ||
+            message.contains("OPERATION_NOT_ALLOWED", ignoreCase = true)) {
+            return Exception("Firebase Authentication Email/Password provider is disabled in Firebase Console. Please open Firebase Console -> Authentication -> Sign-in method and enable 'Email/Password'.")
+        }
+
+        return when (e) {
+            is FirebaseAuthException -> {
+                when (e.errorCode) {
+                    "ERROR_EMAIL_ALREADY_IN_USE" -> Exception("An account with this email already exists. Please login instead.")
+                    "ERROR_WRONG_PASSWORD", "ERROR_USER_NOT_FOUND", "ERROR_INVALID_CREDENTIAL" -> Exception("Invalid email or password. Please try again.")
+                    "ERROR_USER_DISABLED" -> Exception("This account has been disabled by campus administration.")
+                    "ERROR_WEAK_PASSWORD" -> Exception("The password is too weak. Please use at least 6 characters.")
+                    "ERROR_INVALID_EMAIL" -> Exception("The email address format is invalid.")
+                    "ERROR_TOO_MANY_REQUESTS" -> Exception("Too many unsuccessful attempts. Please try again later.")
+                    "ERROR_OPERATION_NOT_ALLOWED", "CONFIGURATION_NOT_FOUND" -> Exception("Email/Password authentication is disabled in Firebase Console. Please enable Email/Password under Sign-in method in Firebase Console.")
+                    else -> Exception(e.localizedMessage ?: "Authentication error occurred.")
+                }
+            }
+            else -> Exception(e.localizedMessage ?: "An error occurred during authentication.")
+        }
+    }
+}
+

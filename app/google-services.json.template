@@ -1,4 +1,4 @@
-{
+﻿{
   "project_info": {
     "project_number": "227981384600",
     "firebase_url": "https://claimit-322b5-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -10,7 +10,7 @@
       "client_info": {
         "mobilesdk_app_id": "1:227981384600:android:805ef4b6868be2d43fa9ed",
         "android_client_info": {
-          "package_name": "com.example.claimit"
+          "package_name": "com.ssnexora.claimit"
         }
       },
       "oauth_client": [],
@@ -28,3 +28,4 @@
   ],
   "configuration_version": "1"
 }
+
