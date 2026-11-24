@@ -14,8 +14,10 @@ import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -33,43 +35,6 @@ class ClaimRepositoryImpl(
 
     private val TAG = "ClaimRepository"
     private val claimsStateFlow = MutableStateFlow<List<Claim>>(emptyList())
-
-    init {
-        listenToRealtimeDatabaseClaims()
-    }
-
-    private fun listenToRealtimeDatabaseClaims() {
-        val rtdb = realtimeDatabase ?: return
-        try {
-            rtdb.reference.child("claims")
-                .addValueEventListener(object : ValueEventListener {
-                    override fun onDataChange(snapshot: DataSnapshot) {
-                        val list = mutableListOf<Claim>()
-                        if (snapshot.exists()) {
-                            for (child in snapshot.children) {
-                                try {
-                                    val claim = parseClaimSnapshot(child) ?: continue
-                                    list.add(claim)
-                                } catch (e: Exception) {
-                                    Log.e(TAG, "Error parsing claim snapshot: ${e.message}")
-                                }
-                            }
-                        }
-                        claimsStateFlow.value = list.sortedByDescending { it.createdAtTimestamp }
-                    }
-
-                    override fun onCancelled(error: DatabaseError) {
-                        if (error.code == DatabaseError.PERMISSION_DENIED) {
-                            Log.d(TAG, "RTDB claims listener unauthenticated/cancelled")
-                        } else {
-                            Log.w(TAG, "RTDB claims listener cancelled: ${error.message}")
-                        }
-                    }
-                })
-        } catch (e: Exception) {
-            Log.w(TAG, "Exception initializing RTDB claims listener: ${e.message}")
-        }
-    }
 
     private fun parseClaimSnapshot(snapshot: DataSnapshot): Claim? {
         val id = snapshot.key ?: snapshot.child("id").getValue(String::class.java) ?: return null
@@ -170,21 +135,84 @@ class ClaimRepositoryImpl(
     }
 
     override fun getClaimsForUser(userId: String): Flow<List<Claim>> {
-        return claimsStateFlow.map { list ->
-            list.filter { it.claimantId == userId }
+        val rtdb = realtimeDatabase
+        if (rtdb != null && userId.isNotBlank()) {
+            return callbackFlow {
+                val query = rtdb.reference.child("claims").orderByChild("claimantUid").equalTo(userId)
+                val listener = object : ValueEventListener {
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        val list = mutableListOf<Claim>()
+                        if (snapshot.exists()) {
+                            for (child in snapshot.children) {
+                                parseClaimSnapshot(child)?.let { list.add(it) }
+                            }
+                        }
+                        trySend(list.sortedByDescending { it.createdAtTimestamp })
+                    }
+
+                    override fun onCancelled(error: DatabaseError) {
+                        Log.w(TAG, "Claims query for claimant $userId cancelled: ${error.message}")
+                    }
+                }
+                query.addValueEventListener(listener)
+                awaitClose { query.removeEventListener(listener) }
+            }
         }
+        return claimsStateFlow.map { list -> list.filter { it.claimantId == userId } }
     }
 
     override fun getClaimsForListingOwner(ownerId: String): Flow<List<Claim>> {
-        return claimsStateFlow.map { list ->
-            list.filter { it.itemOwnerOrFinderId == ownerId }
+        val rtdb = realtimeDatabase
+        if (rtdb != null && ownerId.isNotBlank()) {
+            return callbackFlow {
+                val query = rtdb.reference.child("claims").orderByChild("uploaderUid").equalTo(ownerId)
+                val listener = object : ValueEventListener {
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        val list = mutableListOf<Claim>()
+                        if (snapshot.exists()) {
+                            for (child in snapshot.children) {
+                                parseClaimSnapshot(child)?.let { list.add(it) }
+                            }
+                        }
+                        trySend(list.sortedByDescending { it.createdAtTimestamp })
+                    }
+
+                    override fun onCancelled(error: DatabaseError) {
+                        Log.w(TAG, "Claims query for owner $ownerId cancelled: ${error.message}")
+                    }
+                }
+                query.addValueEventListener(listener)
+                awaitClose { query.removeEventListener(listener) }
+            }
         }
+        return claimsStateFlow.map { list -> list.filter { it.itemOwnerOrFinderId == ownerId } }
     }
 
     override fun getClaimsForItem(itemId: String): Flow<List<Claim>> {
-        return claimsStateFlow.map { list ->
-            list.filter { it.itemId == itemId }
+        val rtdb = realtimeDatabase
+        if (rtdb != null && itemId.isNotBlank()) {
+            return callbackFlow {
+                val query = rtdb.reference.child("claims").orderByChild("itemId").equalTo(itemId)
+                val listener = object : ValueEventListener {
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        val list = mutableListOf<Claim>()
+                        if (snapshot.exists()) {
+                            for (child in snapshot.children) {
+                                parseClaimSnapshot(child)?.let { list.add(it) }
+                            }
+                        }
+                        trySend(list.sortedByDescending { it.createdAtTimestamp })
+                    }
+
+                    override fun onCancelled(error: DatabaseError) {
+                        Log.w(TAG, "Claims query for item $itemId cancelled: ${error.message}")
+                    }
+                }
+                query.addValueEventListener(listener)
+                awaitClose { query.removeEventListener(listener) }
+            }
         }
+        return claimsStateFlow.map { list -> list.filter { it.itemId == itemId } }
     }
 
     override suspend fun updateClaimStatus(
@@ -343,4 +371,3 @@ class ClaimRepositoryImpl(
         }
     }
 }
-
