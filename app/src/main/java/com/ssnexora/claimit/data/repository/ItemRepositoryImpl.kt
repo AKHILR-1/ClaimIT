@@ -65,7 +65,11 @@ class ItemRepositoryImpl(
                     }
 
                     override fun onCancelled(error: DatabaseError) {
-                        Log.w(TAG, "RTDB org items listener cancelled: ${error.message}")
+                        if (error.code == DatabaseError.PERMISSION_DENIED) {
+                            Log.d(TAG, "RTDB items listener unauthenticated/cancelled")
+                        } else {
+                            Log.w(TAG, "RTDB items listener cancelled: ${error.message}")
+                        }
                     }
                 })
 
@@ -89,7 +93,11 @@ class ItemRepositoryImpl(
                     }
 
                     override fun onCancelled(error: DatabaseError) {
-                        Log.w(TAG, "RTDB global items listener cancelled: ${error.message}")
+                        if (error.code == DatabaseError.PERMISSION_DENIED) {
+                            Log.d(TAG, "RTDB global items listener unauthenticated/cancelled")
+                        } else {
+                            Log.w(TAG, "RTDB global items listener cancelled: ${error.message}")
+                        }
                     }
                 })
         } catch (e: Exception) {

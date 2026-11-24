@@ -169,7 +169,7 @@ class AuthRepositoryImpl(
         val isVerified = fbUser.isEmailVerified
 
         val rtdb = realtimeDatabase
-        if (rtdb != null) {
+        if (rtdb != null && fbUser.uid.isNotBlank()) {
             try {
                 rtdb.reference.child("users").child(fbUser.uid).get()
                     .addOnSuccessListener { snapshot ->
@@ -234,7 +234,7 @@ class AuthRepositoryImpl(
                         }
                     }
                     .addOnFailureListener { e ->
-                        Log.w(TAG, "Realtime Database profile fetch failed: ${e.message}, using fallback profile")
+                        Log.w(TAG, "Realtime Database profile fetch deferred: ${e.message}")
                         setCurrentUser(buildFallbackUser(fbUser))
                     }
             } catch (e: Exception) {
@@ -289,9 +289,11 @@ class AuthRepositoryImpl(
 
             val auth = firebaseAuth
             if (auth != null) {
+                // 1. Create Firebase Authentication Account first
                 val authResult = auth.createUserWithEmailAndPassword(cleanEmail, pass).await()
                 val fbUser = authResult.user ?: return@withContext Result.failure(Exception("Failed to create Firebase user account."))
 
+                // 2. Update Auth display name
                 val profileUpdates = UserProfileChangeRequest.Builder()
                     .setDisplayName(name.trim().ifBlank { cleanEmail.substringBefore("@") })
                     .build()
@@ -303,6 +305,7 @@ class AuthRepositoryImpl(
                     Log.w(TAG, "Email verification link dispatch deferred: ${e.message}")
                 }
 
+                // 3. Create Realtime Database profile under /users/{fbUser.uid} using actual UID
                 val rtdbMap = mapOf(
                     "fullName" to name.trim().ifBlank { cleanCollegeEmail.substringBefore("@") },
                     "collegeEmail" to cleanCollegeEmail,
@@ -327,12 +330,12 @@ class AuthRepositoryImpl(
                 )
 
                 val rtdb = realtimeDatabase
-                if (rtdb != null) {
+                if (rtdb != null && fbUser.uid.isNotBlank()) {
                     try {
                         rtdb.reference.child("users").child(fbUser.uid).setValue(rtdbMap).await()
                         rtdb.reference.child("memberships").child(fbUser.uid).setValue(membershipMap).await()
                     } catch (e: Exception) {
-                        Log.e(TAG, "Failed to save profile in Realtime Database: ${e.message}", e)
+                        Log.w(TAG, "Realtime Database profile creation deferred: ${e.message}")
                     }
                 }
 
@@ -384,6 +387,7 @@ class AuthRepositoryImpl(
 
             val auth = firebaseAuth
             if (auth != null) {
+                // 1. Wait for successful Firebase Authentication first
                 val authResult = auth.signInWithEmailAndPassword(cleanEmail, pass).await()
                 val fbUser = authResult.user ?: return@withContext Result.failure(Exception("Sign in failed."))
 
@@ -393,9 +397,10 @@ class AuthRepositoryImpl(
                     Log.w(TAG, "User reload failed: ${e.message}")
                 }
 
+                // 2. Read profile from /users/{fbUser.uid} after authentication
                 val currentUser = try {
                     val rtdb = realtimeDatabase
-                    if (rtdb != null) {
+                    if (rtdb != null && fbUser.uid.isNotBlank()) {
                         val snapshot = rtdb.reference.child("users").child(fbUser.uid).get().await()
                         if (snapshot != null && snapshot.exists()) {
                             val fullName = snapshot.child("fullName").getValue(String::class.java)
@@ -427,7 +432,7 @@ class AuthRepositoryImpl(
                         buildFallbackUser(fbUser)
                     }
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to fetch user profile on login: ${e.message}")
+                    Log.w(TAG, "Database profile read for ${fbUser.uid} deferred: ${e.message}")
                     buildFallbackUser(fbUser)
                 }
 
@@ -626,11 +631,11 @@ class AuthRepositoryImpl(
 
             if (rtdb != null && userId.isNotBlank()) {
                 val sessionsRef = rtdb.reference.child("deviceSessions").child(userId)
-                val snapshot = sessionsRef.get().await()
+                val snapshot = try { sessionsRef.get().await() } catch (_: Exception) { null }
 
                 if (isAdmin) {
                     var activeCount = 0
-                    if (snapshot.exists()) {
+                    if (snapshot != null && snapshot.exists()) {
                         for (child in snapshot.children) {
                             val isActive = child.child("isActive").getValue(Boolean::class.java) ?: false
                             if (isActive) activeCount++
@@ -642,14 +647,14 @@ class AuthRepositoryImpl(
                         )
                     }
                 } else {
-                    if (snapshot.exists()) {
+                    if (snapshot != null && snapshot.exists()) {
                         val updates = mutableMapOf<String, Any>()
                         for (child in snapshot.children) {
                             val childId = child.key ?: continue
                             updates["$childId/isActive"] = false
                         }
                         if (updates.isNotEmpty()) {
-                            sessionsRef.updateChildren(updates).await()
+                            try { sessionsRef.updateChildren(updates).await() } catch (_: Exception) {}
                         }
                     }
                 }
@@ -664,7 +669,11 @@ class AuthRepositoryImpl(
                     "lastActive" to ServerValue.TIMESTAMP
                 )
 
-                sessionsRef.child(sessionId).setValue(sessionMap).await()
+                try {
+                    sessionsRef.child(sessionId).setValue(sessionMap).await()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to save device session in RTDB: ${e.message}")
+                }
             }
 
             Result.success(sessionId)
@@ -693,7 +702,11 @@ class AuthRepositoryImpl(
                 }
 
                 override fun onCancelled(error: DatabaseError) {
-                    Log.w(TAG, "Session listener cancelled: ${error.message}")
+                    if (error.code == DatabaseError.PERMISSION_DENIED) {
+                        Log.d(TAG, "Session listener unauthenticated/cancelled")
+                    } else {
+                        Log.w(TAG, "Session listener cancelled: ${error.message}")
+                    }
                 }
             }
 
@@ -745,7 +758,11 @@ class AuthRepositoryImpl(
                 }
 
                 override fun onCancelled(error: DatabaseError) {
-                    Log.w(TAG, "Device sessions listener cancelled: ${error.message}")
+                    if (error.code == DatabaseError.PERMISSION_DENIED) {
+                        Log.d(TAG, "Device sessions listener unauthenticated/cancelled")
+                    } else {
+                        Log.w(TAG, "Device sessions listener cancelled: ${error.message}")
+                    }
                 }
             }
 
@@ -797,7 +814,11 @@ class AuthRepositoryImpl(
                 }
 
                 override fun onCancelled(error: DatabaseError) {
-                    Log.w(TAG, "All device sessions listener cancelled: ${error.message}")
+                    if (error.code == DatabaseError.PERMISSION_DENIED) {
+                        Log.d(TAG, "All device sessions listener unauthenticated/cancelled")
+                    } else {
+                        Log.w(TAG, "All device sessions listener cancelled: ${error.message}")
+                    }
                 }
             }
 
@@ -887,7 +908,11 @@ class AuthRepositoryImpl(
                 }
 
                 override fun onCancelled(error: DatabaseError) {
-                    Log.w(TAG, "All users listener cancelled: ${error.message}")
+                    if (error.code == DatabaseError.PERMISSION_DENIED) {
+                        Log.d(TAG, "All users listener unauthenticated/cancelled")
+                    } else {
+                        Log.w(TAG, "All users listener cancelled: ${error.message}")
+                    }
                 }
             }
 
@@ -1020,6 +1045,11 @@ class AuthRepositoryImpl(
             return Exception("Firebase Authentication Email/Password provider is disabled in Firebase Console. Please open Firebase Console -> Authentication -> Sign-in method and enable 'Email/Password'.")
         }
 
+        if (message.contains("Permission denied", ignoreCase = true) ||
+            message.contains("PERMISSION_DENIED", ignoreCase = true)) {
+            return Exception("Account access restricted. Please check your credentials or verify your college email address.")
+        }
+
         return when (e) {
             is FirebaseAuthException -> {
                 when (e.errorCode) {
@@ -1037,4 +1067,3 @@ class AuthRepositoryImpl(
         }
     }
 }
-

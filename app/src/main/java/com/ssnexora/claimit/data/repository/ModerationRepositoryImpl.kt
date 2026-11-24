@@ -110,7 +110,11 @@ class ModerationRepositoryImpl(
                     }
 
                     override fun onCancelled(error: DatabaseError) {
-                        Log.w(TAG, "Moderation reports listener cancelled: ${error.message}")
+                        if (error.code == DatabaseError.PERMISSION_DENIED) {
+                            Log.d(TAG, "Moderation reports listener unauthenticated/cancelled")
+                        } else {
+                            Log.w(TAG, "Moderation reports listener cancelled: ${error.message}")
+                        }
                     }
                 })
         } catch (e: Exception) {
@@ -162,7 +166,11 @@ class ModerationRepositoryImpl(
                     }
 
                     override fun onCancelled(error: DatabaseError) {
-                        Log.w(TAG, "Moderation audit listener cancelled: ${error.message}")
+                        if (error.code == DatabaseError.PERMISSION_DENIED) {
+                            Log.d(TAG, "Moderation audit listener unauthenticated/cancelled")
+                        } else {
+                            Log.w(TAG, "Moderation audit listener cancelled: ${error.message}")
+                        }
                     }
                 })
         } catch (e: Exception) {

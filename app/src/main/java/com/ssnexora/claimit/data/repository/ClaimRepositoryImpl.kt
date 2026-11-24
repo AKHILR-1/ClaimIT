@@ -59,7 +59,11 @@ class ClaimRepositoryImpl(
                     }
 
                     override fun onCancelled(error: DatabaseError) {
-                        Log.w(TAG, "RTDB claims listener cancelled: ${error.message}")
+                        if (error.code == DatabaseError.PERMISSION_DENIED) {
+                            Log.d(TAG, "RTDB claims listener unauthenticated/cancelled")
+                        } else {
+                            Log.w(TAG, "RTDB claims listener cancelled: ${error.message}")
+                        }
                     }
                 })
         } catch (e: Exception) {
