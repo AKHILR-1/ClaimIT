@@ -25,6 +25,7 @@ data class PostCreationUiState(
     val description: String = "",
     val selectedCategory: ItemCategory = ItemCategory.ELECTRONICS,
     val customCategoryTag: String = "",
+    val countryCode: String = "+91",
     val contactInfo: String = "",
     val actionTakenRemarks: String = "",
     val physicalAttributes: PhysicalAttributes = PhysicalAttributes(),
@@ -71,11 +72,14 @@ data class PostCreationUiState(
             )
         }
 
+    val isContactPhoneValid: Boolean
+        get() = contactInfo.trim().filter { it.isDigit() }.length >= 10
+
     val isFormValid: Boolean
         get() = title.trim().length >= 3 &&
                 selectedBuilding != null &&
                 (selectedBuilding.id != "bld_others" || customBuildingName.trim().isNotBlank()) &&
-                contactInfo.trim().isNotBlank() &&
+                isContactPhoneValid &&
                 capturedBitmaps.isNotEmpty() &&
                 !isSubmitting
 }

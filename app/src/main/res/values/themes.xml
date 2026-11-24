@@ -1,10 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
 
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#F6F8FA</item>
+        <item name="windowSplashScreenAnimatedIcon" tools:targetApi="s">@drawable/ic_splash_transparent</item>
+        <item name="postSplashScreenTheme">@style/Theme.ClaimIT</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+
     <style name="Theme.ClaimIT" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowDisablePreview">true</item>
         <item name="android:windowBackground">#F6F8FA</item>
         <item name="android:windowSplashScreenBackground" tools:targetApi="s">#F6F8FA</item>
-        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="s">@android:color/transparent</item>
+        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="s">@drawable/ic_splash_transparent</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
     </style>
 </resources>

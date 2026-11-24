@@ -13,6 +13,7 @@ sealed interface PostCreationIntent {
     data class UpdateDescription(val description: String) : PostCreationIntent
     data class SelectCategory(val category: ItemCategory) : PostCreationIntent
     data class UpdateCustomCategoryTag(val tag: String) : PostCreationIntent
+    data class SelectCountryCode(val code: String) : PostCreationIntent
     data class UpdateContactInfo(val contact: String) : PostCreationIntent
     data class UpdateActionTakenRemarks(val remarks: String) : PostCreationIntent
 
