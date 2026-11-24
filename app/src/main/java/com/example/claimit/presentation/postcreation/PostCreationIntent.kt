@@ -46,4 +46,5 @@ sealed interface PostCreationIntent {
     // Action intents
     object SubmitPost : PostCreationIntent
     object DismissError : PostCreationIntent
+    object ResetForm : PostCreationIntent
 }

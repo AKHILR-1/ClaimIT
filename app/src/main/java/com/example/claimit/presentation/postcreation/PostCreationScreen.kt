@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -70,15 +71,19 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.claimit.domain.model.ItemCategory
+import com.example.claimit.domain.model.ItemType
 import com.example.claimit.presentation.postcreation.components.DuplicateMatchBanner
 import com.example.claimit.presentation.postcreation.components.ItemTypeSelector
 import com.example.claimit.presentation.postcreation.components.MediaDrawerComponent
 import com.example.claimit.presentation.postcreation.components.MicroLocationPicker
 import com.example.claimit.presentation.postcreation.components.SplitCardComparisonSheet
 import com.example.claimit.presentation.postcreation.components.SuggestedTagsTray
+import com.example.claimit.ui.theme.StatusFoundEmerald
+import com.example.claimit.ui.theme.StatusLostCrimson
 import com.example.claimit.ui.theme.TagAiIndigo
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -86,7 +91,8 @@ import com.example.claimit.ui.theme.TagAiIndigo
 fun PostCreationScreen(
     viewModel: PostCreationViewModel,
     modifier: Modifier = Modifier,
-    onNavigateToFeed: () -> Unit = {}
+    onNavigateToFeed: () -> Unit = {},
+    onNavigateToMyReports: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -110,12 +116,7 @@ fun PostCreationScreen(
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
                 is PostCreationSideEffect.PostCreatedSuccessfully -> {
-                    Toast.makeText(
-                        context,
-                        "Report uploaded successfully!\nTracking Code: ${effect.trackingCode}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    onNavigateToFeed()
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
                 is PostCreationSideEffect.ConnectWithFinderOrOwner -> {
                     Toast.makeText(
@@ -128,11 +129,22 @@ fun PostCreationScreen(
         }
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
+    if (uiState.submissionStatus == ReportSubmissionStatus.SUCCESS) {
+        PostCreationSuccessPage(
+            uiState = uiState,
+            onNavigateToFeed = onNavigateToFeed,
+            onNavigateToMyReports = onNavigateToMyReports,
+            onResetForm = {
+                viewModel.onIntent(PostCreationIntent.ResetForm)
+                currentStep = 1
+            }
+        )
+    } else {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        ) {
         val scrollState = rememberScrollState()
 
         Column(
@@ -309,6 +321,7 @@ fun PostCreationScreen(
             )
         }
     }
+}
 }
 
 @Composable
@@ -826,9 +839,167 @@ private fun Step3LocationAndContact(
             Text(
                 text = if (uiState.isContactPhoneValid) "✓ Valid 10-digit mobile number" else "Must enter a valid 10-digit mobile number with country code",
                 style = MaterialTheme.typography.labelSmall,
-                color = if (uiState.isContactPhoneValid) com.example.claimit.ui.theme.StatusFoundEmerald else MaterialTheme.colorScheme.error,
+                color = if (uiState.isContactPhoneValid) StatusFoundEmerald else MaterialTheme.colorScheme.error,
                 fontSize = 10.sp
             )
+        }
+    }
+}
+
+@Composable
+private fun PostCreationSuccessPage(
+    uiState: PostCreationUiState,
+    onNavigateToFeed: () -> Unit,
+    onNavigateToMyReports: () -> Unit,
+    onResetForm: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .clip(CircleShape)
+                .background(StatusFoundEmerald.copy(alpha = 0.15f))
+                .border(2.dp, StatusFoundEmerald, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = "Success",
+                tint = StatusFoundEmerald,
+                modifier = Modifier.size(48.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        Text(
+            text = "Successfully Submitted!",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "For more updates check My Reports and active notifications.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Card with summary details
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                .padding(16.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = uiState.itemType.name,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (uiState.itemType == ItemType.LOST) StatusLostCrimson else StatusFoundEmerald
+                    )
+
+                    Text(
+                        text = "Status: Live",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = StatusFoundEmerald,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                Text(
+                    text = uiState.title.ifBlank { "Reported Item" },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Text(
+                    text = "Location: ${uiState.selectedLocation?.building?.name ?: "Campus Location"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp
+                )
+
+                if (!uiState.createdPostId.isNullOrBlank()) {
+                    Text(
+                        text = "Tracking ID: ${uiState.createdPostId}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TagAiIndigo,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(30.dp))
+
+        // Action Buttons
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Button(
+                onClick = onNavigateToMyReports,
+                colors = ButtonDefaults.buttonColors(containerColor = TagAiIndigo),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = "CHECK MY REPORTS",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            OutlinedButton(
+                onClick = onNavigateToFeed,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = "VIEW CAMPUS LIVE FEED",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            TextButton(
+                onClick = onResetForm,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Submit Another Report",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
     }
 }
