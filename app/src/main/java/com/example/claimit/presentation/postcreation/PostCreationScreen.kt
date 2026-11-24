@@ -37,6 +37,9 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Publish
 import androidx.compose.material.icons.filled.Title
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,6 +53,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -687,69 +691,37 @@ private fun Step3LocationAndContact(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            val countryCodes = listOf(
-                "+91 🇮🇳" to "+91",
-                "+1 🇺🇸" to "+1",
-                "+44 🇬🇧" to "+44",
-                "+971 🇦🇪" to "+971",
-                "+92 🇵🇰" to "+92",
-                "+880 🇧🇩" to "+880",
-                "+977 🇳🇵" to "+977"
-            )
+            var isCountryPickerOpen by remember { mutableStateOf(false) }
+            var countrySearchQuery by remember { mutableStateOf("") }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                var isCountryDropdownExpanded by remember { mutableStateOf(false) }
-
-                Box {
-                    Box(
-                        modifier = Modifier
-                            .height(56.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(MaterialTheme.colorScheme.primaryContainer)
-                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                            .clickable { isCountryDropdownExpanded = true }
-                            .padding(horizontal = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = uiState.countryCode,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(
-                                imageVector = Icons.Default.ArrowDropDown,
-                                contentDescription = "Select Country Code",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-                    }
-
-                    DropdownMenu(
-                        expanded = isCountryDropdownExpanded,
-                        onDismissRequest = { isCountryDropdownExpanded = false }
-                    ) {
-                        countryCodes.forEach { (label, code) ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = label,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = if (uiState.countryCode == code) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                },
-                                onClick = {
-                                    viewModel.onIntent(PostCreationIntent.SelectCountryCode(code))
-                                    isCountryDropdownExpanded = false
-                                }
-                            )
-                        }
+                Box(
+                    modifier = Modifier
+                        .height(56.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .clickable { isCountryPickerOpen = true }
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = uiState.countryCode,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Select Country Code",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     }
                 }
 
@@ -767,6 +739,85 @@ private fun Step3LocationAndContact(
                         unfocusedBorderColor = if (uiState.isContactPhoneValid) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.error
                     ),
                     modifier = Modifier.weight(1f)
+                )
+            }
+
+            if (isCountryPickerOpen) {
+                AlertDialog(
+                    onDismissRequest = {
+                        isCountryPickerOpen = false
+                        countrySearchQuery = ""
+                    },
+                    title = {
+                        Text(
+                            text = "Select Country Code",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    text = {
+                        Column {
+                            OutlinedTextField(
+                                value = countrySearchQuery,
+                                onValueChange = { countrySearchQuery = it },
+                                placeholder = { Text("Search country or code...") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            val filteredCountries = remember(countrySearchQuery) {
+                                if (countrySearchQuery.isBlank()) {
+                                    com.example.claimit.core.util.CountryCodeData.allCountryCodes
+                                } else {
+                                    com.example.claimit.core.util.CountryCodeData.allCountryCodes.filter {
+                                        it.countryName.contains(countrySearchQuery, ignoreCase = true) ||
+                                        it.code.contains(countrySearchQuery)
+                                    }
+                                }
+                            }
+
+                            Box(modifier = Modifier.height(260.dp)) {
+                                LazyColumn {
+                                    items(filteredCountries) { item ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    viewModel.onIntent(PostCreationIntent.SelectCountryCode(item.formattedCode))
+                                                    isCountryPickerOpen = false
+                                                    countrySearchQuery = ""
+                                                }
+                                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = item.countryName,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = item.formattedCode,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            isCountryPickerOpen = false
+                            countrySearchQuery = ""
+                        }) {
+                            Text("CANCEL", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
                 )
             }
 
