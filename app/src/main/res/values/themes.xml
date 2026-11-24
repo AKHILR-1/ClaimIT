@@ -4,7 +4,6 @@
     <style name="Theme.ClaimIT" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">#F6F8FA</item>
         <item name="android:windowSplashScreenBackground" tools:targetApi="s">#F6F8FA</item>
-        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="s">@drawable/claimit_logo</item>
-        <item name="android:windowSplashScreenIconBackgroundColor" tools:targetApi="s">#F6F8FA</item>
+        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="s">@android:color/transparent</item>
     </style>
 </resources>
