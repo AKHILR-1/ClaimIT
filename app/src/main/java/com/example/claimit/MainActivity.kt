@@ -87,12 +87,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
         setContent {
             var isDarkTheme by rememberSaveable { mutableStateOf(false) } // Default Light Theme
             var showSplash by remember { mutableStateOf(true) }
 
             LaunchedEffect(Unit) {
-                delay(2000L) // Show full logo splash screen for 2 seconds
+                delay(2000L) // Show splash screen with full logo for 2 seconds
                 showSplash = false
             }
 
