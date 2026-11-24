@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -83,6 +84,22 @@ fun ClaimItMainScreen(
     val isSessionRevoked by mainViewModel.isSessionRevoked.collectAsState()
 
     val currentUser = userState
+
+    val isMainFeedPage = currentDestination == ClaimItNavDestination.FEED && viewingDetailsPost == null && !isNotificationsSheetOpen
+
+    BackHandler(enabled = !isMainFeedPage && currentUser != null && currentUser.isEmailVerified) {
+        when {
+            isNotificationsSheetOpen -> {
+                isNotificationsSheetOpen = false
+            }
+            viewingDetailsPost != null -> {
+                viewingDetailsPost = null
+            }
+            currentDestination != ClaimItNavDestination.FEED -> {
+                currentDestination = ClaimItNavDestination.FEED
+            }
+        }
+    }
 
     if (currentUser == null) {
         AuthScreen(

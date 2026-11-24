@@ -82,6 +82,9 @@ class PostCreationViewModel(
             is PostCreationIntent.UpdateCustomCategoryTag -> {
                 _uiState.update { it.copy(customCategoryTag = intent.tag) }
             }
+            is PostCreationIntent.SelectCountryCode -> {
+                _uiState.update { it.copy(countryCode = intent.code) }
+            }
             is PostCreationIntent.UpdateContactInfo -> {
                 _uiState.update { it.copy(contactInfo = intent.contact) }
             }
